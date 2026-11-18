@@ -1,0 +1,6 @@
+import { sqliteTable, text, integer } from 'drizzle-orm/sqlite-core';
+export const products = sqliteTable('products', {id:text('id').primaryKey(),name:text('name').notNull(),category:text('category').notNull(),price:integer('price').notNull(),originalPrice:integer('original_price').notNull(),description:text('description').notNull(),image:text('image').notNull(),badge:text('badge').notNull(),color:text('color').notNull(),active:integer('active').notNull().default(1)});
+export const inventory=sqliteTable('inventory',{id:text('id').primaryKey(),productId:text('product_id').notNull(),size:text('size').notNull(),quantity:integer('quantity').notNull()});
+export const orders=sqliteTable('orders',{id:text('id').primaryKey(),customer:text('customer').notNull(),email:text('email').notNull(),address:text('address').notNull(),total:integer('total').notNull(),createdAt:text('created_at').notNull(),status:text('status').notNull()});
+export const orderItems=sqliteTable('order_items',{id:text('id').primaryKey(),orderId:text('order_id').notNull(),productId:text('product_id').notNull(),name:text('name').notNull(),category:text('category').notNull(),size:text('size').notNull(),quantity:integer('quantity').notNull(),price:integer('price').notNull()});
+export const admins=sqliteTable('admins',{userId:text('user_id').primaryKey(),email:text('email').notNull()});
