@@ -141,13 +141,39 @@ export async function getRequest(id: string) {
   return r ?? null;
 }
 
-export async function decideRequest(id: string, status: "approved" | "rejected", by: string, note: string) {
-  const [r] = await getDb()
+/**
+ * Decide a request exactly once. The request is claimed first ("processing"),
+ * so if two admins approve at the same moment only one carries it out.
+ * `perform` runs the approved action; if it fails, the request goes back to pending.
+ */
+export async function decideRequest(
+  id: string,
+  status: "approved" | "rejected",
+  by: string,
+  note: string,
+  perform?: (req: typeof approvalRequests.$inferSelect) => Promise<unknown>,
+) {
+  const db = getDb();
+  const [claimed] = await db
     .update(approvalRequests)
-    .set({ status, decidedBy: by, decisionNote: note, decidedAt: new Date() })
+    .set({ status: "processing", decidedBy: by })
     .where(and(eq(approvalRequests.id, id), eq(approvalRequests.status, "pending")))
     .returning();
-  if (!r) throw new HttpError(409, "This request was already handled.");
+  if (!claimed) throw new HttpError(409, "This request was already handled.");
+  try {
+    if (status === "approved" && perform) await perform(claimed);
+  } catch (e) {
+    await db
+      .update(approvalRequests)
+      .set({ status: "pending", decidedBy: null })
+      .where(and(eq(approvalRequests.id, id), eq(approvalRequests.status, "processing")));
+    throw e;
+  }
+  const [r] = await db
+    .update(approvalRequests)
+    .set({ status, decisionNote: note, decidedAt: new Date() })
+    .where(eq(approvalRequests.id, id))
+    .returning();
   return r;
 }
 

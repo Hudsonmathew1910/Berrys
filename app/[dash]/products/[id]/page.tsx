@@ -37,6 +37,7 @@ export default async function EditProductPage({ params }: { params: Promise<{ id
       </div>
 
       <ProductEditor
+        key={p.version}
         listHref={adminHref("products")}
         categories={cats.map((c) => ({ name: c.name, sizes: c.sizes }))}
         initial={{
@@ -53,6 +54,7 @@ export default async function EditProductPage({ params }: { params: Promise<{ id
           color: p.color,
           active: p.active,
           stock: p.stock,
+          version: p.version,
         }}
       />
 

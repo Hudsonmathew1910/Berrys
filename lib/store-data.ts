@@ -1,5 +1,6 @@
 import "server-only";
 import { and, asc, desc, eq, ilike, inArray, ne, or, sql, type SQL } from "drizzle-orm";
+import { cache } from "react";
 import { getDb, schema } from "@/db";
 import type { OrderStatus } from "@/db/schema";
 import { DEFAULT_SIZES, type Product } from "@/lib/catalog";
@@ -126,14 +127,15 @@ export async function queryProducts(q: ProductQuery) {
   };
 }
 
-export async function getProduct(id: string) {
+/** One product (de-duplicated within a request: page + metadata share one lookup). */
+export const getProduct = cache(async (id: string) => {
   const rows = await getDb()
     .select()
     .from(products)
     .where(and(eq(products.id, id), eq(products.active, true)))
     .limit(1);
   return (await hydrateProducts(rows))[0] ?? null;
-}
+});
 
 export async function relatedProducts(p: Product, limit = 4) {
   const rows = await getDb()

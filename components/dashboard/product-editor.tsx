@@ -20,6 +20,8 @@ export type EditableProduct = {
   color: string;
   active: boolean;
   stock: Record<string, number>;
+  /** Last saved version (existing products), for safe concurrent editing. */
+  version?: string;
 };
 
 /** Create / edit a product: photos (up to 6), details, tags, and stock for each size of its category. */
@@ -79,6 +81,9 @@ export function ProductEditor({
       .map((t) => t.trim())
       .filter(Boolean),
     stock: Object.fromEntries(sizes.map((s) => [s, p.stock[s] ?? 0])),
+    // What the form started from: the server applies only the difference.
+    stockBase: initial.id ? initial.stock : undefined,
+    version: initial.version,
   });
 
   return (

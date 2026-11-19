@@ -164,6 +164,21 @@ public/images/berrys-logo-full.webp   footer logo · berrys-mark.webp header mar
 - Vercel → Firewall: keep the default DDoS protection on; turn on _Attack Challenge Mode_ if the site is ever attacked.
 - Rotate any key that was ever shared in chat or email (e.g. the Google client secret).
 
+## Traffic & concurrent use
+
+**Correctness under concurrency** (all tested with simultaneous requests against Supabase):
+
+- Checkout reserves stock with a single conditional update: 25 buyers racing for 3 units → exactly 3 orders, never negative stock.
+- Product edits apply only the _change_ the staff member made, so sales during editing aren't erased; two staff saving the same product → the second is asked to reload (no silent overwrite).
+- Refunds are claimed atomically before Razorpay is called (5 simultaneous clicks → 1 refund). Approval requests are claimed before running (5 admins approving → done once). Order status changes lock the row (one transition wins). Payment confirmation (browser + webhook) is idempotent.
+
+**Capacity:**
+
+- Vercel runs many server instances in parallel as traffic grows; each keeps a small DB pool (`DATABASE_POOL_MAX`, 3 recommended) through Supabase's transaction pooler, which multiplexes them onto Postgres. In-flight queries are capped per instance, so bursts queue briefly instead of failing.
+- Categories, website content and offers are cached across requests; the logged-in user and products are looked up once per request.
+- `vercel.json` pins the server code to **Mumbai (bom1)**, the same region as the Supabase database (ap-south-1). Keep these together — cross-region would add ~200 ms per query.
+- For big traffic spikes (sales, campaigns): upgrade the Supabase compute size (more connections and CPU) and use Vercel Pro; keep Vercel's firewall/DDoS protection on.
+
 ## Deploying (e.g. Vercel)
 
 1. Import the repo and add every variable from `.env.example` (use `DATABASE_POOL_MAX=3` on Vercel).

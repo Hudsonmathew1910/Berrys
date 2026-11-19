@@ -1,4 +1,5 @@
 import "server-only";
+import { cache } from "react";
 import { serverEnv } from "@/lib/env";
 import { HttpError } from "@/lib/http-error";
 import { getSessionUser } from "@/lib/session";
@@ -16,8 +17,8 @@ export type Viewer = {
   complete: boolean;
 } | null;
 
-/** The logged-in visitor (from the session cookie), or null. */
-export async function getViewer(): Promise<Viewer> {
+/** The logged-in visitor (from the session cookie), or null. Looked up once per request. */
+export const getViewer = cache(async (): Promise<Viewer> => {
   const u = await getSessionUser();
   if (!u) return null;
   return {
@@ -28,7 +29,7 @@ export async function getViewer(): Promise<Viewer> {
     avatarUrl: u.avatarUrl,
     complete: isComplete(u),
   };
-}
+});
 
 export function isOwnerEmail(email: string | null | undefined) {
   const owner = serverEnv.storeOwnerEmail();

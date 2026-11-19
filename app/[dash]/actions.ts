@@ -440,11 +440,11 @@ export async function decideRequestAction(_: ActionResult, f: FormData) {
     if (!req || req.status !== "pending") return { error: "This request was already handled." };
     const decision = str(f, "decision") === "approve" ? "approved" : "rejected";
     const note = str(f, "note").slice(0, 500);
-    if (decision === "approved") {
-      if (req.type === "refund") await ord.refundOrder(req.targetId, actorName(staff), req.reason);
-      else await cat.deleteProduct(req.targetId);
-    }
-    await team.decideRequest(req.id, decision, actorName(staff), note);
+    await team.decideRequest(req.id, decision, actorName(staff), note, (r) =>
+      r.type === "refund"
+        ? ord.refundOrder(r.targetId, actorName(staff), r.reason)
+        : cat.deleteProduct(r.targetId),
+    );
     await logActivity(
       actorName(staff),
       `${decision === "approved" ? "Approved" : "Rejected"} ${req.type} request`,

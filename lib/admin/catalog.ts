@@ -63,7 +63,7 @@ export async function getAdminProduct(id: string) {
   const rows = await getDb().select().from(products).where(eq(products.id, id)).limit(1);
   if (!rows[0]) return null;
   const [p] = await hydrateProducts(rows);
-  return { ...p, active: rows[0].active };
+  return { ...p, active: rows[0].active, version: rows[0].updatedAt.toISOString() };
 }
 
 /** Create/update a product; stock differences are logged as "adjust" movements. */
@@ -73,6 +73,17 @@ export async function saveProduct(input: ProductInput, actor: string) {
   if (!cat) throw new HttpError(400, "Choose a valid category.");
   const id = input.id || `${slug(input.name)}-${crypto.randomUUID().slice(0, 6)}`;
   await db.transaction(async (tx) => {
+    if (input.id) {
+      // Lock the row so two staff saving at once are applied one after the other.
+      const [existing] = await tx.select().from(products).where(eq(products.id, input.id)).for("update");
+      if (!existing) throw new HttpError(404, "This product no longer exists.");
+      if (input.version && existing.updatedAt.toISOString() !== input.version) {
+        throw new HttpError(
+          409,
+          "Someone else saved this product after you opened it. Reload the page to see their changes, then edit again.",
+        );
+      }
+    }
     const values = {
       name: input.name,
       category: input.category,
@@ -92,14 +103,25 @@ export async function saveProduct(input: ProductInput, actor: string) {
       .insert(products)
       .values({ id, ...values })
       .onConflictDoUpdate({ target: products.id, set: values });
-    const current = await tx.select().from(inventory).where(eq(inventory.productId, id));
+    // Rows are locked so concurrent checkouts wait for this save (and vice versa).
+    const current = await tx.select().from(inventory).where(eq(inventory.productId, id)).for("update");
     for (const size of cat.sizes) {
-      const next = input.stock[size] ?? 0;
       const before = current.find((c) => c.size === size)?.quantity ?? 0;
-      await tx
-        .insert(inventory)
-        .values({ productId: id, size, quantity: next })
-        .onConflictDoUpdate({ target: [inventory.productId, inventory.size], set: { quantity: next } });
+      // Apply only what the staff member changed in the form. If customers bought
+      // some meanwhile, those sales stay counted (never below zero).
+      const base = input.stockBase?.[size] ?? before;
+      const wanted = input.stock[size] ?? 0;
+      const next = Math.max(0, before + (wanted - base));
+      if (current.some((c) => c.size === size)) {
+        if (next !== before) {
+          await tx
+            .update(inventory)
+            .set({ quantity: next })
+            .where(and(eq(inventory.productId, id), eq(inventory.size, size)));
+        }
+      } else {
+        await tx.insert(inventory).values({ productId: id, size, quantity: next });
+      }
       if (next !== before) {
         await tx.insert(stockMovements).values({
           productId: id,

@@ -68,6 +68,10 @@ export const productSchema = z
     color: z.string().regex(/^#[a-f0-9]{6}$/i, "Choose a colour swatch."),
     active: z.boolean().default(true),
     stock: z.record(z.string().min(1).max(20), z.number().int().min(0).max(100_000)),
+    /** Stock shown when the editor was opened: only the difference is applied, so sales made meanwhile aren’t lost. */
+    stockBase: z.record(z.string().min(1).max(20), z.number().int().min(0).max(100_000)).optional(),
+    /** updatedAt when the editor was opened: rejects saving over someone else’s newer edit. */
+    version: z.string().max(40).optional(),
   })
   .refine((p) => p.originalPrice >= p.price, "MRP must be at least the selling price.");
 export type ProductInput = z.infer<typeof productSchema>;
