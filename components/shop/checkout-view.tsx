@@ -9,7 +9,7 @@ import { api } from "@/components/store/api";
 import { bagStore, bagTotals, useBag } from "@/components/store/bag";
 import { openRazorpay, type RazorpaySuccess } from "@/components/store/razorpay";
 import { useToast } from "@/components/store/toast";
-import { AddressFields, readAddress } from "./address-form";
+import { AddressFields, emptyAddress, readAddress } from "./address-form";
 import { useProducts } from "./use-products";
 
 export type SavedAddress = {
@@ -37,11 +37,14 @@ export function CheckoutView({
   email,
   addresses,
   paymentsReady = true,
+  prefill,
 }: {
   email: string;
   addresses: SavedAddress[];
   /** False until Razorpay keys are configured: show a notice, disable paying. */
   paymentsReady?: boolean;
+  /** Name and contact mobile from the account, pre-filled in a new address. */
+  prefill?: { name: string; phone: string };
 }) {
   const router = useRouter();
   const toast = useToast();
@@ -192,7 +195,7 @@ export function CheckoutView({
           </div>
           {selected === "new" && (
             <div className="new-address">
-              <AddressFields showDefault={false} />
+              <AddressFields showDefault={false} initial={{ ...emptyAddress, ...prefill }} />
               <label className="check">
                 <input type="checkbox" name="save" defaultChecked /> Save this address to my account
               </label>

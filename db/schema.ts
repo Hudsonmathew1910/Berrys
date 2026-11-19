@@ -33,6 +33,8 @@ export const users = pgTable("users", {
   phone: text("phone").unique(),
   name: text("name").notNull().default(""),
   avatarUrl: text("avatar_url").notNull().default(""),
+  /** Mobile number the customer typed in My account (not verified; never used to log in). */
+  contactPhone: text("contact_phone").notNull().default(""),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   lastLoginAt: timestamp("last_login_at", { withTimezone: true }).notNull().defaultNow(),
 }).enableRLS();

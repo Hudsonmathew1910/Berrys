@@ -13,6 +13,8 @@ export type Viewer = {
   phone: string | null;
   name: string;
   avatarUrl: string;
+  /** Unverified contact number from My account (E.164 or ""). */
+  contactPhone: string;
   /** Google account and mobile number are both linked. */
   complete: boolean;
 } | null;
@@ -27,6 +29,7 @@ export const getViewer = cache(async (): Promise<Viewer> => {
     phone: u.phone,
     name: u.name,
     avatarUrl: u.avatarUrl,
+    contactPhone: u.contactPhone,
     complete: isComplete(u),
   };
 });

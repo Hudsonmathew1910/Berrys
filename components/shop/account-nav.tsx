@@ -1,20 +1,50 @@
 "use client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect, useState } from "react";
 import { Heart, LogOut, MapPin, Package, ShoppingBag, User } from "lucide-react";
 
-const links = [
-  ["/account", "Account details", User],
-  ["/account/orders", "My orders", Package],
-  ["/account/favourites", "Favourites", Heart],
-  ["/account/addresses", "Addresses", MapPin],
-  ["/cart", "My bag", ShoppingBag],
+export const accountSections = [
+  ["details", "Account details", User],
+  ["orders", "My orders", Package],
+  ["favourites", "Favourites", Heart],
+  ["addresses", "Addresses", MapPin],
+  ["bag", "My bag", ShoppingBag],
 ] as const;
 
+/**
+ * Account menu. On /account it scrolls smoothly to each section and
+ * highlights the one in view; elsewhere (an order page) it links back.
+ */
 export function AccountNav({ name, avatar }: { name: string; avatar: string }) {
   const pathname = usePathname();
-  const isActive = (href: string) =>
-    href === "/account" ? pathname === "/account" : pathname === href || pathname.startsWith(href + "/");
+  const onAccount = pathname === "/account";
+  const [active, setActive] = useState("details");
+
+  useEffect(() => {
+    if (!onAccount) return;
+    const els = accountSections
+      .map(([id]) => document.getElementById(id))
+      .filter((el): el is HTMLElement => !!el);
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const visible = entries.filter((e) => e.isIntersecting).sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top);
+        if (visible[0]) setActive(visible[0].target.id);
+      },
+      { rootMargin: "-30% 0px -60% 0px" },
+    );
+    els.forEach((el) => observer.observe(el));
+    return () => observer.disconnect();
+  }, [onAccount]);
+
+  function go(e: React.MouseEvent, id: string) {
+    if (!onAccount) return; // normal navigation to /account#id
+    e.preventDefault();
+    document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    history.replaceState(null, "", `#${id}`);
+    setActive(id);
+  }
+
   return (
     <aside className="account-nav">
       <div className="account-who">
@@ -29,14 +59,20 @@ export function AccountNav({ name, avatar }: { name: string; avatar: string }) {
         </div>
       </div>
       <nav aria-label="Account">
-        {links.map(([href, label, Icon]) => (
-          <Link key={href} href={href} className={isActive(href) ? "active" : ""}>
-            <Icon size={17} /> {label}
+        {accountSections.map(([id, label, Icon]) => (
+          <Link
+            key={id}
+            href={`/account#${id}`}
+            className={onAccount && active === id ? "active" : ""}
+            aria-current={onAccount && active === id ? "true" : undefined}
+            onClick={(e) => go(e, id)}
+          >
+            <Icon size={17} /> <span>{label}</span>
           </Link>
         ))}
         <form action="/auth/signout" method="post">
           <button type="submit">
-            <LogOut size={17} /> Log out
+            <LogOut size={17} /> <span>Log out</span>
           </button>
         </form>
       </nav>

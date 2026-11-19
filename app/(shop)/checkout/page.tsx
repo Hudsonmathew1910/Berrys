@@ -25,6 +25,7 @@ export default async function CheckoutPage() {
       <h1 className="page-title">Checkout</h1>
       <CheckoutView
         paymentsReady={paymentsReady()}
+        prefill={{ name: viewer.name, phone: viewer.contactPhone || viewer.phone || "" }}
         email={viewer.email}
         addresses={addresses.map(({ id, name, phone, line1, line2, city, state, pincode, isDefault }) => ({
           id,

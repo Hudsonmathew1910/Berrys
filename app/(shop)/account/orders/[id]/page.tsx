@@ -31,7 +31,7 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
 
   return (
     <>
-      <Link className="text-link" href="/account/orders">
+      <Link className="text-link" href="/account#orders">
         <ArrowLeft size={15} /> All orders
       </Link>
       <div className="order-head">

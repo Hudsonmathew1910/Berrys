@@ -26,7 +26,7 @@ export async function SiteFooter() {
           <Link href="/help/size-guide">Size guide</Link>
           <Link href="/help/shipping-returns">Shipping & returns</Link>
           <Link href="/help/contact">Get in touch</Link>
-          <Link href="/account/orders">Track my order</Link>
+          <Link href="/account#orders">Track my order</Link>
         </div>
         <div className="footer-note">
           <span className="eyebrow">A LITTLE NOTE</span>
