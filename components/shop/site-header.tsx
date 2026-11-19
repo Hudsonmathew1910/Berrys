@@ -2,24 +2,75 @@
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
-import { ArrowUpRight, Heart, LayoutDashboard, Menu, Search, ShoppingBag, Star, User, X } from "lucide-react";
+import { ArrowUpRight, ChevronDown, Heart, LayoutDashboard, LogIn, Menu, Search, ShoppingBag, Star, User, X } from "lucide-react";
 import { useBag, useLikes } from "@/components/store/bag";
 import { GoogleIcon } from "./google-icon";
 
 export type HeaderViewer = { name: string; email: string | null } | null;
 
-/** "Continue with Google" that brings the visitor back to the page they were on. */
-function GoogleButton() {
+/** "Login" dropdown button that reveals "Continue with Google" on hover or click */
+function HeaderLoginMenu() {
   const pathname = usePathname();
   const search = useSearchParams();
   const here = pathname + (search.size ? `?${search}` : "");
   const next = pathname.startsWith("/login") ? "/account" : here;
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      const target = e.target as HTMLElement;
+      if (!target.closest(".header-login-wrap")) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener("click", handleClickOutside);
+    return () => document.removeEventListener("click", handleClickOutside);
+  }, []);
+
   return (
-    <a className="header-google" href={`/auth/google?next=${encodeURIComponent(next)}`}>
-      <GoogleIcon size={17} />
-      <span className="long">Continue with Google</span>
-      <span className="short">Sign in</span>
-    </a>
+    <div
+      className={`header-login-wrap ${open ? "open" : ""}`}
+      onMouseEnter={() => setOpen(true)}
+      onMouseLeave={() => setOpen(false)}
+    >
+      <button
+        type="button"
+        className="header-login-btn"
+        aria-haspopup="true"
+        aria-expanded={open}
+        onClick={(e) => {
+          e.stopPropagation();
+          setOpen((v) => !v);
+        }}
+      >
+        <span className="action-symbol">
+          <User size={20} />
+        </span>
+        <span className="action-label">Sign In</span>
+        <ChevronDown size={14} className="dropdown-caret" />
+      </button>
+
+      <div className="header-login-dropdown" role="menu">
+        <a
+          role="menuitem"
+          className="google-signin-action"
+          href={`/auth/google?next=${encodeURIComponent(next)}`}
+        >
+          <GoogleIcon size={18} />
+          <span>Continue with Google</span>
+        </a>
+        <div className="login-dropdown-divider" />
+        <Link
+          role="menuitem"
+          className="otp-signin-action"
+          href="/login"
+          onClick={() => setOpen(false)}
+        >
+          <LogIn size={15} />
+          <span>Login with Phone / SMS</span>
+        </Link>
+      </div>
+    </div>
   );
 }
 
@@ -95,36 +146,38 @@ export function SiteHeader({
         </form>
         <nav className="header-actions" aria-label="Your account">
           {dashboardHref && (
-            <a className="header-dashboard" href={dashboardHref}>
-              <LayoutDashboard size={17} />
-              <span>Dashboard</span>
+            <a className="header-dashboard-link" href={dashboardHref} title="Staff Dashboard">
+              <span className="action-symbol">
+                <LayoutDashboard size={20} />
+              </span>
+              <span className="action-label">Dashboard</span>
             </a>
           )}
           {viewer ? (
             <Link className="shop-header-action" href="/account">
               <span className="action-symbol">
-                <User size={21} />
+                <User size={20} />
               </span>
-              <span>{firstName || "Account"}</span>
+              <span className="action-label">{firstName || "Account"}</span>
             </Link>
           ) : (
-            <Suspense fallback={<span className="header-google placeholder" />}>
-              <GoogleButton />
+            <Suspense fallback={<div className="header-login-skeleton" />}>
+              <HeaderLoginMenu />
             </Suspense>
           )}
           <Link className="shop-header-action" href={viewer ? "/account#favourites" : "/favourites"}>
             <span className="action-symbol">
-              <Heart size={21} />
+              <Heart size={20} />
               {likes.length > 0 && <span className="mini-count">{likes.length}</span>}
             </span>
-            <span>Favourites</span>
+            <span className="action-label">Favourites</span>
           </Link>
           <Link className="shop-header-action" href="/cart">
             <span className="action-symbol">
-              <ShoppingBag size={21} />
+              <ShoppingBag size={20} />
               {bagCount > 0 && <span className="mini-count">{bagCount}</span>}
             </span>
-            <span>Bag</span>
+            <span className="action-label">Bag</span>
           </Link>
         </nav>
       </header>
