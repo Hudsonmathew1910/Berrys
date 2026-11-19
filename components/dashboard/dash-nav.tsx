@@ -4,6 +4,7 @@ import { usePathname } from "next/navigation";
 import {
   BarChart3,
   Boxes,
+  Bug,
   ClipboardCheck,
   CreditCard,
   FileText,
@@ -11,6 +12,7 @@ import {
   LayoutDashboard,
   Package,
   Percent,
+  Settings,
   Shapes,
   ShoppingBag,
   UserCog,
@@ -32,6 +34,8 @@ const icons = {
   requests: ClipboardCheck,
   team: UserCog,
   activity: History,
+  errors: Bug,
+  settings: Settings,
   account: Package,
 } as const;
 

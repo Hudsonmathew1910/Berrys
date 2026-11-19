@@ -5,7 +5,9 @@ import { customerDetail } from "@/lib/admin/insights";
 import { money } from "@/lib/catalog";
 import { salesStatuses, statusLabels } from "@/lib/order-status";
 import { adminHref, can, requirePage } from "@/lib/staff";
+import { ActionForm } from "@/components/dashboard/action-form";
 import { Stat } from "@/components/dashboard/charts";
+import { deleteCustomerAction } from "../../actions";
 
 export default async function CustomerPage({ params }: { params: Promise<{ id: string }> }) {
   const staff = await requirePage("customers");
@@ -54,6 +56,22 @@ export default async function CustomerPage({ params }: { params: Promise<{ id: s
           </table>
           {!c.orders.length && <p className="muted">No orders yet.</p>}
         </section>
+        {staff.role === "admin" && (
+          <section className="dash-panel danger-zone">
+            <h2>Delete customer</h2>
+            <p className="muted">
+              Deletes their account, saved addresses and logins (they’re signed out). Their orders stay in
+              Orders and sales, without the account link. They can sign up again with Google later.
+            </p>
+            <ActionForm
+              action={deleteCustomerAction}
+              confirm={`Delete ${c.user.email ?? "this customer"}’s account permanently?`}
+            >
+              <input type="hidden" name="userId" value={c.user.id} />
+              <button className="primary danger">Delete customer</button>
+            </ActionForm>
+          </section>
+        )}
         <section className="dash-panel">
           <h2>Saved addresses</h2>
           {c.addresses.map((a) => (

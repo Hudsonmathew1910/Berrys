@@ -1,3 +1,4 @@
+import { logError } from "@/lib/error-log";
 import { json } from "@/lib/http";
 import { markOrderPaid } from "@/lib/orders";
 import { verifyWebhookSignature } from "@/lib/razorpay";
@@ -17,6 +18,9 @@ export async function POST(request: Request) {
   if (raw.length > MAX_BODY) return json({ error: "Too large" }, 413);
   const signature = request.headers.get("x-razorpay-signature") || "";
   if (!/^[a-f0-9]{64}$/.test(signature) || !verifyWebhookSignature(raw, signature)) {
+    await logError("payment", "Webhook with an invalid signature was rejected", {
+      path: "/api/webhooks/razorpay",
+    });
     return json({ error: "Invalid signature" }, 401);
   }
 
@@ -28,7 +32,7 @@ export async function POST(request: Request) {
     }
     return json({ ok: true });
   } catch (e) {
-    console.error("Razorpay webhook failed", e);
+    await logError("payment", e, { path: "/api/webhooks/razorpay" });
     // Non-2xx makes Razorpay retry later.
     return json({ error: "Webhook processing failed" }, 500);
   }

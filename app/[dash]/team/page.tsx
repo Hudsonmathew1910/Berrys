@@ -53,6 +53,14 @@ function Member({ s, me }: { s: Staff; me: Staff }) {
             dashboard
             {owner && <input type="hidden" name="active" value="on" />}
           </label>
+          {owner ? (
+            <span className="wide muted">The store owner address never gets new-order emails.</span>
+          ) : (
+            <label className="check wide">
+              <input type="checkbox" name="notifyOrders" defaultChecked={s.notifyOrders} /> Email this person
+              every new order
+            </label>
+          )}
         </div>
         {!owner && <Permissions selected={s.permissions} />}
         <button className="outline">Save</button>

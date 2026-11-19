@@ -55,14 +55,10 @@ export const genderLabels: Record<Product["gender"], string> = {
 
 /**
  * Shipping rule, applied on the server when the order is created and shown in
- * the bag. Defaults to free shipping; set the env vars to charge a flat fee.
+ * the bag. Set in Dashboard → Settings (passed in); 0 = free shipping.
  */
-export const shippingConfig = {
-  fee: Number(process.env.NEXT_PUBLIC_SHIPPING_FEE || 0),
-  freeAbove: Number(process.env.NEXT_PUBLIC_FREE_SHIPPING_ABOVE || 0),
-};
-export function shippingFor(subtotal: number) {
-  if (!shippingConfig.fee) return 0;
-  if (shippingConfig.freeAbove && subtotal >= shippingConfig.freeAbove) return 0;
-  return shippingConfig.fee;
+export function shippingFor(subtotal: number, rule: { fee: number; freeAbove: number }) {
+  if (!rule.fee) return 0;
+  if (rule.freeAbove && subtotal >= rule.freeAbove) return 0;
+  return rule.fee;
 }

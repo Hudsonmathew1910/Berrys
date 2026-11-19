@@ -70,8 +70,11 @@ export function SiteHeader({
   categories,
   announcement,
   dashboardHref,
+  brand = { name: "Berry’s", logo: "" },
 }: {
   viewer: HeaderViewer;
+  /** Website name and logo from Dashboard → Settings. */
+  brand?: { name: string; logo: string };
   categories: string[];
   announcement: string[];
   /** Only for logged-in staff and admins. */
@@ -112,12 +115,12 @@ export function SiteHeader({
         >
           {menuOpen ? <X size={22} /> : <Menu size={22} />}
         </button>
-        <Link className="site-brand" href="/" aria-label="Berry’s home">
+        <Link className="site-brand" href="/" aria-label={`${brand.name} home`}>
           <span className="brand-mark">
-            <img src="/images/berrys-mark.webp" alt="" />
+            <img src={brand.logo || "/images/berrys-mark.webp"} alt="" />
           </span>
           <span className="brand-word">
-            <b>BERRY’S</b>
+            <b>{brand.name.toUpperCase()}</b>
             <small>CLOTHING BRAND</small>
           </span>
         </Link>

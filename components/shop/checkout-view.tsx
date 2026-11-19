@@ -38,8 +38,13 @@ export function CheckoutView({
   addresses,
   paymentsReady = true,
   prefill,
+  shippingRule,
+  demo = false,
 }: {
   email: string;
+  shippingRule: { fee: number; freeAbove: number };
+  /** Demo payments (Settings → Developer): no money is taken. */
+  demo?: boolean;
   addresses: SavedAddress[];
   /** False until Razorpay keys are configured: show a notice, disable paying. */
   paymentsReady?: boolean;
@@ -55,7 +60,7 @@ export function CheckoutView({
   );
   const [busy, setBusy] = useState(false);
   const { count, subtotal } = bagTotals(bag, products);
-  const shipping = shippingFor(subtotal);
+  const shipping = shippingFor(subtotal, shippingRule);
   const problems = bag.some((l) => {
     const p = products.find((x) => x.id === l.productId);
     return !p || (p.stock[l.size] ?? 0) < l.quantity;
@@ -110,7 +115,7 @@ export function CheckoutView({
 
     if (order.mock) {
       const ok = window.confirm(
-        `TEST MODE — no real payment.\n\nSimulate a successful payment of ${money(order.total)} for order ${order.orderId}?`,
+        `DEMO MODE — no real payment.\n\nPlace demo order ${order.orderId} for ${money(order.total)}?`,
       );
       if (!ok) return cancel();
       try {
@@ -253,11 +258,18 @@ export function CheckoutView({
         {!paymentsReady && (
           <p className="form-error">Online payment isn’t available yet — please check back soon.</p>
         )}
+        {demo && paymentsReady && (
+          <p className="form-note demo-note">
+            <b>Demo mode</b> — no real payment is taken. Demo orders are deleted automatically after 1 minute.
+          </p>
+        )}
         <button className="primary" disabled={!paymentsReady || busy || loading || problems}>
-          {busy ? <Loader2 className="spin" size={17} /> : <Lock size={17} />} Pay{" "}
-          {money(subtotal + shipping)}
+          {busy ? <Loader2 className="spin" size={17} /> : <Lock size={17} />}{" "}
+          {demo ? "Place demo order" : "Pay"} {money(subtotal + shipping)}
         </button>
-        <small className="muted">Secure payment by Razorpay · UPI, cards, netbanking and wallets.</small>
+        {!demo && (
+          <small className="muted">Secure payment by Razorpay · UPI, cards, netbanking and wallets.</small>
+        )}
       </aside>
     </form>
   );

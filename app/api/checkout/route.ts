@@ -4,7 +4,8 @@ import { getViewer } from "@/lib/auth";
 import { firebaseConfig } from "@/lib/firebase-verify";
 import { HttpError } from "@/lib/http-error";
 import { assertSameOrigin, handleError, json } from "@/lib/http";
-import { createPendingOrder, paymentsReady } from "@/lib/orders";
+import { createPendingOrder, paymentState } from "@/lib/orders";
+import { getSettings } from "@/lib/settings";
 import { clientIp, rateLimit } from "@/lib/rate-limit";
 import { addressSchema, bagSchema, checkoutSchema } from "@/lib/validation";
 
@@ -32,7 +33,10 @@ export async function POST(request: Request) {
     if (firebaseConfig() && !viewer.phone) {
       throw new HttpError(403, "Verify your mobile number to place an order.");
     }
-    if (!paymentsReady()) {
+    const [payment, settings] = await Promise.all([paymentState(), getSettings()]);
+    if (settings.maintenance)
+      throw new HttpError(503, "The shop is closed for maintenance. Please check back soon.");
+    if (!payment.ready) {
       throw new HttpError(503, "Online payment isn’t available yet. Please check back soon.");
     }
     await rateLimit("checkout", clientIp(request), 10, 10 * 60);
@@ -55,8 +59,11 @@ export async function POST(request: Request) {
       address: formatAddress(address),
       pincode: address.pincode,
     });
-    return json(await createPendingOrder(input, viewer));
+    return json(await createPendingOrder(input, viewer, payment));
   } catch (e) {
-    return handleError(e, "We could not start checkout. Please try again.");
+    return handleError(e, "We could not start checkout. Please try again.", {
+      source: "payment",
+      path: "/api/checkout",
+    });
   }
 }

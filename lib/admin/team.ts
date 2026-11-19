@@ -19,7 +19,7 @@ export async function addStaff(email: string, role: StaffRole, permissions: Perm
       .values({
         email: email.toLowerCase(),
         role,
-        permissions: role === "admin" ? [] : permissions,
+        permissions: role === "staff" ? permissions : [],
         createdBy: by,
       })
       .returning();
@@ -53,12 +53,12 @@ async function guardOwnerAndLastAdmin(
 
 export async function updateStaff(
   id: string,
-  data: { role: StaffRole; permissions: Permission[]; active: boolean; name: string },
+  data: { role: StaffRole; permissions: Permission[]; active: boolean; name: string; notifyOrders: boolean },
 ) {
   const s = await guardOwnerAndLastAdmin(id, data);
   await getDb()
     .update(staffMembers)
-    .set({ ...data, permissions: data.role === "admin" ? [] : data.permissions })
+    .set({ ...data, permissions: data.role === "staff" ? data.permissions : [] })
     .where(eq(staffMembers.id, id));
   // Deactivated or changed: end their open dashboard sessions.
   if (!data.active || data.role !== s.role)
@@ -87,7 +87,7 @@ export async function removeStaff(id: string) {
 // ---------------------------------------------------------------- approval requests
 
 export async function createRequest(
-  type: "refund" | "delete_product",
+  type: "refund" | "delete_product" | "delete_order",
   targetId: string,
   reason: string,
   by: string,
@@ -191,4 +191,9 @@ export async function listActivity(page: number) {
       .offset((page - 1) * PAGE_SIZE),
   ]);
   return { rows, total, pages: Math.max(1, Math.ceil(total / PAGE_SIZE)) };
+}
+
+/** "Email me new orders" for one team member. */
+export async function setNotifyOrders(id: string, on: boolean) {
+  await getDb().update(staffMembers).set({ notifyOrders: on }).where(eq(staffMembers.id, id));
 }

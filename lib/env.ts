@@ -36,6 +36,19 @@ export const serverEnv = {
 
   storeOwnerEmail: () => process.env.STORE_OWNER_EMAIL?.trim().toLowerCase() || "",
 
+  /** Optional Gmail (or any) SMTP for order emails. SMTP_PASS is a Google "App password", not the login password. */
+  smtp: () => {
+    const user = process.env.SMTP_USER?.trim();
+    const pass = process.env.SMTP_PASS?.replace(/\s+/g, "");
+    if (!user || !pass) return null;
+    return {
+      user,
+      pass,
+      host: process.env.SMTP_HOST || "smtp.gmail.com",
+      port: Number(process.env.SMTP_PORT) || 465,
+    };
+  },
+
   /** Optional: order confirmation emails are skipped when unset. */
   resendApiKey: () => process.env.RESEND_API_KEY || "",
   orderEmailFrom: () => process.env.ORDER_EMAIL_FROM || "Berry’s <orders@example.com>",

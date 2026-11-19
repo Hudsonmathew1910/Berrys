@@ -5,7 +5,6 @@ import { cookies } from "next/headers";
 import { notFound } from "next/navigation";
 import { cache } from "react";
 import { getDb, schema } from "@/db";
-import type { Permission } from "@/db/schema";
 import { getViewer, isOwnerEmail } from "@/lib/auth";
 import { HttpError } from "@/lib/http-error";
 import { currentSessionHash } from "@/lib/session";
@@ -14,7 +13,7 @@ const { staffMembers, dashboardSessions, activityLog } = schema;
 
 export type Staff = typeof staffMembers.$inferSelect;
 export * from "@/lib/staff-core";
-import { can } from "@/lib/staff-core";
+import { canAccess, type Access } from "@/lib/staff-core";
 
 // ---------------------------------------------------------------- staff lookup
 
@@ -119,21 +118,21 @@ export const getDashboardContext = cache(async (): Promise<DashboardContext> => 
 });
 
 /** For dashboard pages: unlocked staff with the permission, else 404 / redirect handled by layout. */
-export async function requirePage(perm?: Permission | "admin") {
+export async function requirePage(access?: Access) {
   const ctx = await getDashboardContext();
   if (!ctx.unlocked) notFound();
-  if (perm === "admin" ? ctx.staff.role !== "admin" : perm && !can(ctx.staff, perm)) notFound();
+  if (access && !canAccess(ctx.staff, access)) notFound();
   return ctx.staff;
 }
 
 /** For server actions / API routes: throws HttpError instead of rendering 404. */
-export async function requireAction(perm?: Permission | "admin") {
+export async function requireAction(access?: Access) {
   const staff = await getStaffForViewer();
   if (!staff) throw new HttpError(404, "Not found");
   if (!staff.passwordHash || !(await isUnlocked(staff.id))) {
     throw new HttpError(401, "Your dashboard session has ended. Please unlock it again.");
   }
-  if (perm === "admin" ? staff.role !== "admin" : perm && !can(staff, perm)) {
+  if (access && !canAccess(staff, access)) {
     throw new HttpError(403, "You don’t have permission to do that.");
   }
   return staff;

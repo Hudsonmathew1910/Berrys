@@ -1,5 +1,7 @@
 import Link from "next/link";
 import { listRequests } from "@/lib/admin/team";
+import { listRefundRequests } from "@/lib/refunds";
+import { RefundRequestCard } from "@/components/dashboard/refund-request-card";
 import { adminHref, requirePage } from "@/lib/staff";
 import { ActionForm } from "@/components/dashboard/action-form";
 import { pageNum } from "@/components/dashboard/list-tools";
@@ -15,9 +17,12 @@ export default async function RequestsPage({
   const sp = await searchParams;
   const view = sp.view === "decided" ? "decided" : "pending";
   const page = pageNum(sp.page);
-  const res = await listRequests(view, page);
+  const [res, refunds] = await Promise.all([
+    listRequests(view, page),
+    listRefundRequests({ status: view === "pending" ? "open" : "decided", page: 1 }),
+  ]);
   const target = (type: string, id: string) =>
-    type === "refund"
+    type === "refund" || type === "delete_order"
       ? adminHref(`orders/${encodeURIComponent(id)}`)
       : adminHref(`products/${encodeURIComponent(id)}`);
 
@@ -25,8 +30,10 @@ export default async function RequestsPage({
     <div className="dash-page">
       <div className="dash-heading">
         <div>
-          <h1>Staff requests</h1>
-          <span className="muted">Refunds and deletions requested by staff without that permission.</span>
+          <h1>Requests</h1>
+          <span className="muted">
+            Customer refund requests, and refunds or deletions asked for by staff without that permission.
+          </span>
         </div>
         <nav className="range-tabs">
           <Link href={adminHref("requests")} className={view === "pending" ? "active" : ""}>
@@ -37,11 +44,42 @@ export default async function RequestsPage({
           </Link>
         </nav>
       </div>
+      <section className="dash-panel refund-panel">
+        <h2>
+          Customer refund requests{" "}
+          <small className="muted">{view === "pending" ? `${refunds.total} open` : "recently decided"}</small>
+        </h2>
+        {refunds.rows.map(({ request, customer }) => (
+          <RefundRequestCard
+            key={request.id}
+            r={request}
+            isAdmin
+            canVerify
+            customer={customer}
+            orderHref={adminHref(`orders/${encodeURIComponent(request.orderId)}`)}
+          />
+        ))}
+        {!refunds.rows.length && (
+          <p className="dash-empty">
+            {view === "pending" ? "No customer refund requests waiting." : "None decided yet."}
+          </p>
+        )}
+        {refunds.total > refunds.rows.length && (
+          <Link className="text-link" href={adminHref("orders?status=refunds")}>
+            See all in Orders
+          </Link>
+        )}
+      </section>
+      <h2 className="dash-subheading">Staff requests</h2>
       <div className="dash-grid">
         {res.rows.map((r) => (
           <section key={r.id} className="dash-panel">
             <h2>
-              {r.type === "refund" ? "Refund order" : "Delete product"}{" "}
+              {r.type === "refund"
+                ? "Refund order"
+                : r.type === "delete_order"
+                  ? "Delete order"
+                  : "Delete product"}{" "}
               <Link href={target(r.type, r.targetId)}>{r.targetId}</Link>
             </h2>
             <p>

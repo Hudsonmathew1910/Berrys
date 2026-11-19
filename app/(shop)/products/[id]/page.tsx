@@ -3,6 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Leaf, RotateCcw, ShieldCheck, Truck } from "lucide-react";
 import { discountPercent, money } from "@/lib/catalog";
+import { getSettings } from "@/lib/settings";
 import { getProduct, relatedProducts } from "@/lib/store-data";
 import { AddToBag } from "@/components/shop/add-to-bag";
 import { ProductCard } from "@/components/shop/product-card";
@@ -25,7 +26,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 export default async function ProductPage({ params }: Props) {
   const product = await getProduct(decodeURIComponent((await params).id));
   if (!product) notFound();
-  const related = await relatedProducts(product);
+  const [related, settings] = await Promise.all([relatedProducts(product), getSettings()]);
   const off = discountPercent(product);
 
   return (
@@ -63,7 +64,9 @@ export default async function ProductPage({ params }: Props) {
               <Truck size={18} /> Dispatched after payment is confirmed
             </div>
             <div>
-              <RotateCcw size={18} /> Easy returns — <Link href="/help/shipping-returns">see policy</Link>
+              <RotateCcw size={18} />{" "}
+              {settings.returnDays > 0 ? `Easy returns within ${settings.returnDays} days` : "Returns"} —{" "}
+              <Link href="/help/shipping-returns">see policy</Link>
             </div>
             <div>
               <ShieldCheck size={18} /> Secure payments by Razorpay

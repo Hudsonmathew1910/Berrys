@@ -6,6 +6,9 @@ import { orderStatusCounts, salesByDay, salesSummary, trendingProducts } from "@
 import { pendingRequestCount } from "@/lib/admin/team";
 import { money } from "@/lib/catalog";
 import { statusLabels } from "@/lib/order-status";
+import { recentErrorCount } from "@/lib/error-log";
+import { refundRequestCounts } from "@/lib/refunds";
+import { getSettings } from "@/lib/settings";
 import { adminHref, can, requirePage } from "@/lib/staff";
 import { DayBars, pctChange, Stat } from "@/components/dashboard/charts";
 
@@ -14,15 +17,21 @@ export default async function OverviewPage() {
   const seeSales = can(staff, "analytics");
   const seeOrders = can(staff, "orders");
   const seeStock = can(staff, "stock") || can(staff, "products");
-  const [summary, days, trending, counts, recent, low, pending] = await Promise.all([
-    seeSales ? salesSummary(30) : null,
-    seeSales ? salesByDay(30) : null,
-    seeSales ? trendingProducts(5) : null,
-    seeOrders ? orderStatusCounts() : null,
-    seeOrders ? listOrders({ page: 1 }) : null,
-    seeStock ? lowStock(3, 8) : null,
-    staff.role === "admin" ? pendingRequestCount() : 0,
-  ]);
+  const seeErrors = staff.role === "admin";
+  const [summary, days, trending, counts, recent, low, pending, errors, settings, refundCounts] =
+    await Promise.all([
+      seeSales ? salesSummary(30) : null,
+      seeSales ? salesByDay(30) : null,
+      seeSales ? trendingProducts(5) : null,
+      seeOrders ? orderStatusCounts() : null,
+      seeOrders ? listOrders({ page: 1 }) : null,
+      seeStock ? lowStock(3, 8) : null,
+      staff.role === "admin" ? pendingRequestCount() : 0,
+      seeErrors ? recentErrorCount() : 0,
+      getSettings(),
+      seeOrders ? refundRequestCounts() : { requested: 0, verified: 0 },
+    ]);
+  const refundAlerts = refundCounts.requested + (staff.role === "admin" ? refundCounts.verified : 0);
   const toShip = counts ? (counts.paid ?? 0) + (counts.packed ?? 0) : 0;
 
   return (
@@ -34,7 +43,13 @@ export default async function OverviewPage() {
         </div>
       </div>
 
-      {(toShip > 0 || (counts?.needs_refund ?? 0) > 0 || pending > 0) && (
+      {(toShip > 0 ||
+        (counts?.needs_refund ?? 0) > 0 ||
+        pending > 0 ||
+        refundAlerts > 0 ||
+        errors > 0 ||
+        settings.maintenance ||
+        (seeErrors && settings.paymentMode !== "razorpay")) && (
         <div className="dash-alerts">
           {toShip > 0 && (
             <Link href={adminHref("orders?status=open")}>
@@ -49,6 +64,32 @@ export default async function OverviewPage() {
           {pending > 0 && (
             <Link href={adminHref("requests")}>
               <AlertCircle size={16} /> {pending} staff requests waiting for you
+            </Link>
+          )}
+          {refundCounts.requested > 0 && (
+            <Link href={adminHref("orders?status=refunds")}>
+              <AlertCircle size={16} /> {refundCounts.requested} customer refund requests to check
+            </Link>
+          )}
+          {staff.role === "admin" && refundCounts.verified > 0 && (
+            <Link href={adminHref("requests")}>
+              <AlertCircle size={16} /> {refundCounts.verified} verified refunds waiting for your approval
+            </Link>
+          )}
+          {errors > 0 && (
+            <Link href={adminHref("errors")}>
+              <AlertCircle size={16} /> {errors} errors in the last 24 hours
+            </Link>
+          )}
+          {settings.maintenance && (
+            <Link href={adminHref(seeErrors ? "settings#maintenance" : "")}>
+              <AlertCircle size={16} /> Maintenance mode is ON — the shop is closed to customers
+            </Link>
+          )}
+          {seeErrors && settings.paymentMode !== "razorpay" && (
+            <Link href={adminHref("settings#payments")}>
+              <AlertCircle size={16} /> Razorpay is OFF — demo payments are ON (no real money; demo orders
+              delete after 1 minute)
             </Link>
           )}
         </div>

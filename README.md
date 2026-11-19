@@ -194,6 +194,6 @@ public/images/berrys-logo-full.webp   footer logo · berrys-mark.webp header mar
 - Complete Razorpay KYC and switch to `rzp_live_` keys.
 - Set shipping fees if you charge them (`NEXT_PUBLIC_SHIPPING_FEE`, `NEXT_PUBLIC_FREE_SHIPPING_ABOVE`).
 - Publish the Google OAuth app; put the Firebase project on the Blaze plan for mobile OTP.
-- Set up a sending domain with Resend for order confirmation emails (`RESEND_API_KEY`).
+- Order confirmation emails: either Gmail SMTP with an App password (`SMTP_USER`, `SMTP_PASS`; free, no domain) or Resend with a verified domain (`RESEND_API_KEY`, `ORDER_EMAIL_FROM`).
 - Make sure `PAYMENT_MODE` is **not** set in production (it is ignored there anyway).
 - Optional next steps: courier integration (e.g. Shiprocket) for labels and tracking, coupon codes, returns requests, GST invoices, CAPTCHA (e.g. Cloudflare Turnstile) on the mobile OTP form, product detail pages with their own URLs for SEO.

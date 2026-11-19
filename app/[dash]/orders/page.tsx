@@ -2,25 +2,42 @@ import Link from "next/link";
 import { listOrders } from "@/lib/admin/orders";
 import { money } from "@/lib/catalog";
 import { statusLabels } from "@/lib/order-status";
+import { refundStatusLabels } from "@/lib/refunds";
 import { adminHref, requirePage } from "@/lib/staff";
 import { ListTools, pageNum } from "@/components/dashboard/list-tools";
+import { ActionForm } from "@/components/dashboard/action-form";
 import { Pagination } from "@/components/shop/pagination";
+import { deleteUnpaidOrdersAction } from "../actions";
 
 type SP = { q?: string; status?: string; page?: string };
 
 export default async function OrdersPage({ searchParams }: { searchParams: Promise<SP> }) {
-  await requirePage("orders");
+  const staff = await requirePage("orders");
   const sp = await searchParams;
   const q = sp.q?.trim().slice(0, 80) || undefined;
-  const status = sp.status && (sp.status === "open" || sp.status in statusLabels) ? sp.status : undefined;
+  const status =
+    sp.status && (sp.status === "open" || sp.status === "refunds" || sp.status in statusLabels)
+      ? sp.status
+      : undefined;
   const page = pageNum(sp.page);
   const res = await listOrders({ q, status, page });
 
   return (
     <div className="dash-page">
       <div className="dash-heading">
-        <h1>Orders</h1>
-        <span className="muted">{res.total} orders</span>
+        <div>
+          <h1>Orders</h1>
+          <span className="muted">{res.total} orders</span>
+        </div>
+        {staff.role === "admin" && (
+          <ActionForm
+            action={deleteUnpaidOrdersAction}
+            confirm="Delete ALL expired and cancelled (never paid) orders? This cannot be undone."
+            inline
+          >
+            <button className="outline danger-outline">Delete expired & cancelled orders</button>
+          </ActionForm>
+        )}
       </div>
       <ListTools
         q={q}
@@ -33,6 +50,7 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
             options: [
               ["", "All orders"],
               ["open", "To fulfil (paid / packed / shipped)"],
+              ["refunds", "Refund requests (open)"],
               ...Object.entries(statusLabels),
             ],
           },
@@ -66,6 +84,12 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
                 <td>{money(o.total)}</td>
                 <td>
                   <span className={"status-pill status-" + o.status}>{statusLabels[o.status]}</span>
+                  {o.isDemo && <span className="status-pill demo-pill">DEMO</span>}
+                  {o.refundRequest && (
+                    <span className={`status-pill refund-pill refund-${o.refundRequest}`}>
+                      {refundStatusLabels[o.refundRequest]}
+                    </span>
+                  )}
                 </td>
                 <td>{o.trackingNumber ? `${o.courier} ${o.trackingNumber}` : "—"}</td>
               </tr>

@@ -159,7 +159,10 @@ a.header-dashboard-link:hover {
   opacity: 0;
   visibility: hidden;
   transform: translateY(-2px);
-  transition: opacity 0.15s ease, transform 0.15s ease, visibility 0.15s;
+  transition:
+    opacity 0.15s ease,
+    transform 0.15s ease,
+    visibility 0.15s;
 }
 .header-login-wrap.open .header-login-dropdown {
   opacity: 1;
@@ -175,13 +178,18 @@ a.header-dashboard-link:hover {
   border-radius: 10px;
   background: #ffffff;
   border: 1px solid #e3e2da;
-  box-shadow: 0 10px 25px -4px rgba(24, 49, 71, 0.12), 0 4px 10px -2px rgba(24, 49, 71, 0.05);
+  box-shadow:
+    0 10px 25px -4px rgba(24, 49, 71, 0.12),
+    0 4px 10px -2px rgba(24, 49, 71, 0.05);
   color: #202124;
   font-size: 12px;
   font-weight: 500;
   text-decoration: none;
   white-space: nowrap;
-  transition: background 0.15s, border-color 0.15s, box-shadow 0.15s;
+  transition:
+    background 0.15s,
+    border-color 0.15s,
+    box-shadow 0.15s;
 }
 .google-signin-action:hover {
   background: #f8f9fa;
@@ -823,7 +831,9 @@ a.product-title {
   border-radius: 8px;
   text-decoration: none;
   color: inherit;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
 }
 .account-order:hover {
   border-color: var(--navy);
@@ -1428,5 +1438,554 @@ a.account-order:hover {
 @media (prefers-reduced-motion: reduce) {
   .skeleton {
     animation: none;
+  }
+}
+
+/* ===========================================================================
+   Motion & mobile polish (overrides above; keep at the end of the file)
+   =========================================================================== */
+
+/* overflow-x: clip hides sideways spill without breaking the sticky header
+   (overflow: hidden on html/body turns them into scroll containers). */
+html,
+body {
+  overflow-x: clip;
+}
+html {
+  scroll-behavior: smooth;
+  /* Anchored sections stop below the sticky header. */
+  scroll-padding-top: 96px;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Gentle fade/slide-in when a page opens */
+@keyframes page-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.site-main > * {
+  animation: page-in 0.35s ease-out both;
+}
+.product-card {
+  transition: transform 0.25s ease;
+}
+.product-card:hover {
+  transform: translateY(-3px);
+}
+.product-image img {
+  transition: transform 0.45s ease;
+}
+.product-card:hover .product-image img {
+  transform: scale(1.03);
+}
+.primary,
+.outline,
+.google-btn,
+.category-tabs a,
+.pagination a {
+  transition:
+    background-color 0.2s,
+    color 0.2s,
+    border-color 0.2s,
+    transform 0.12s;
+}
+.primary:active,
+.outline:active,
+.icon-btn:active,
+.category-tabs a:active,
+.pagination a:active {
+  transform: scale(0.97);
+}
+.account-section {
+  scroll-margin-top: 96px;
+}
+
+/* ---- Account page: no sideways overflow on any screen ---- */
+.account-layout {
+  grid-template-columns: 240px minmax(0, 1fr);
+}
+@media (max-width: 1000px) {
+  .account-layout {
+    grid-template-columns: minmax(0, 1fr);
+    overflow-x: visible;
+    max-width: none;
+  }
+  .account-nav {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    min-width: 0;
+    padding: 10px 12px;
+    margin: 0 -16px;
+    border-radius: 0;
+    border-left: 0;
+    border-right: 0;
+  }
+  .account-who {
+    display: none;
+  }
+  .account-nav nav {
+    display: flex;
+    min-width: 0;
+    max-width: 100%;
+    overflow-x: auto;
+    scroll-snap-type: x proximity;
+  }
+  .account-nav a,
+  .account-nav button {
+    width: auto;
+    flex: 0 0 auto;
+    scroll-snap-align: start;
+    min-height: 38px;
+  }
+  .account-nav a span,
+  .account-nav button span {
+    display: inline;
+  }
+  .account-content,
+  .account-sections,
+  .account-section {
+    min-width: 0;
+  }
+}
+
+/* ---- Phones ---- */
+@media (max-width: 760px) {
+  /* Search: Enter submits (keyboard shows "Search"), so drop the button */
+  .site-header .search-submit {
+    display: none;
+  }
+  .site-header .store-search {
+    padding-right: 12px;
+  }
+  .site-header .store-search input {
+    font-size: 16px; /* prevents iOS zoom-on-focus */
+  }
+
+  /* Category pills: one swipeable row */
+  .category-tabs {
+    flex-wrap: nowrap;
+    justify-content: flex-start;
+    overflow-x: auto;
+    margin: 18px -16px 16px;
+    padding: 0 16px 4px;
+    scrollbar-width: none;
+    scroll-snap-type: x proximity;
+  }
+  .category-tabs::-webkit-scrollbar {
+    display: none;
+  }
+  .category-tabs a {
+    flex: 0 0 auto;
+    white-space: nowrap;
+    padding: 9px 16px;
+    scroll-snap-align: start;
+  }
+
+  /* Filters: tidy two-column grid */
+  .shop-filters {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    align-items: end;
+  }
+  .shop-filters > div {
+    display: contents;
+  }
+  .shop-filters > div > svg {
+    display: none;
+  }
+  .shop-filters label {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 11px;
+    min-width: 0;
+  }
+  .shop-filters label.check {
+    flex-direction: row;
+    align-items: center;
+    grid-column: 1 / -1;
+  }
+  .shop-filters label {
+    width: 100%;
+    align-items: stretch;
+    text-align: left;
+    color: var(--muted, #6b7280);
+    letter-spacing: 0.4px;
+  }
+  .shop-filters select {
+    margin-left: 0;
+    width: 100%;
+    max-width: none;
+    min-height: 42px;
+    font-size: 14px;
+    padding: 0 10px;
+    border: 1px solid rgba(23, 50, 77, 0.18);
+    border-radius: 10px;
+    background-color: #fff;
+    color: var(--navy, #17324d);
+    text-align: left;
+  }
+  .collection-heading,
+  .shopping-heading {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+  }
+
+  /* Product grid: two columns with comfortable spacing */
+  .product-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 18px 12px;
+  }
+  .product-card:hover {
+    transform: none;
+  }
+  .quick-add {
+    opacity: 1;
+    transform: none;
+    padding: 9px;
+  }
+
+  /* Pagination: bigger tap targets */
+  .pagination a,
+  .pagination span.current,
+  .pagination span.disabled {
+    min-width: 42px;
+    height: 42px;
+  }
+
+  /* Forms: 16px text avoids iOS zoom, 44px tap targets */
+  .address-fields input,
+  .address-fields select,
+  .profile-form input,
+  .checkout-form input,
+  .checkout-form textarea,
+  .inline-form input {
+    font-size: 16px;
+    min-height: 44px;
+  }
+  .primary,
+  .outline {
+    min-height: 44px;
+  }
+  .profile-form .primary,
+  .order-summary .primary,
+  .address-editor .primary {
+    width: 100%;
+    justify-content: center;
+  }
+
+  /* Orders on the account page */
+  .account-order .order-top,
+  .account-order .order-foot {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .account-order .order-top small {
+    display: block;
+    color: var(--muted);
+  }
+  dl.account-identities div {
+    flex-wrap: wrap;
+    gap: 4px 12px;
+  }
+  dl.account-identities dd {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  .site-main > *,
+  .product-card,
+  .product-image img {
+    animation: none;
+    transition: none;
+  }
+}
+
+/* ---- Maintenance, footer contacts, demo checkout, error screen ---- */
+.maintenance-bar {
+  background: #be9560;
+  color: #fff;
+  text-align: center;
+  font-size: 12px;
+  padding: 7px 16px;
+}
+.maintenance-bar a {
+  color: #fff;
+  font-weight: 700;
+  text-decoration: underline;
+}
+.maintenance-page {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px 16px;
+  background: var(--cream);
+}
+.maintenance-card {
+  max-width: 460px;
+  width: 100%;
+  text-align: center;
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+  padding: 36px 26px;
+  background: #fffefa;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  animation: page-in 0.4s ease-out both;
+}
+.maintenance-card h1 {
+  font-family: var(--font-display), sans-serif;
+  color: var(--navy);
+  font-size: 26px;
+  margin: 0;
+}
+.maintenance-card p {
+  margin: 0;
+  color: var(--ink);
+  line-height: 1.6;
+}
+.maintenance-contact {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px 18px;
+}
+.maintenance-contact a,
+.maintenance-team {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--navy);
+}
+.maintenance-team {
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.footer-brand-custom {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+}
+.footer-brand-custom img {
+  width: 56px;
+  height: 56px;
+  border-radius: 12px;
+  object-fit: cover;
+}
+.footer-brand-custom b {
+  font-size: 20px;
+  letter-spacing: 2px;
+  color: #fff;
+}
+.footer-contact,
+.footer-social {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin-top: 14px;
+}
+.footer-contact a,
+.footer-social a {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
+.footer-social a {
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 99px;
+  padding: 5px 12px;
+}
+.demo-note {
+  background: #fff4dd;
+  color: #7a5a24;
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 13px;
+}
+.error-view {
+  text-align: center;
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  padding: 70px 16px;
+}
+.error-actions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.error-actions .primary,
+.error-actions .outline {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.status-pill.demo-pill {
+  background: #fdecea;
+  color: #9b2c1f;
+  margin-left: 6px;
+}
+
+/* ---- Customer refund requests ---- */
+.status-pill.refund-pill {
+  margin-left: 6px;
+  background: #fff1d6;
+  color: #7a5414;
+}
+.status-pill.refund-pill.refund-verified {
+  background: #e6edf5;
+  color: #284b6e;
+}
+.status-pill.refund-pill.refund-approved {
+  background: #e3efe5;
+  color: #2f5a39;
+}
+.status-pill.refund-pill.refund-rejected {
+  background: #f1eeee;
+  color: #7d6a6a;
+}
+.refund-box {
+  margin-top: 18px;
+  display: grid;
+  gap: 12px;
+}
+.refund-status {
+  border: 1px solid var(--line);
+  border-left: 4px solid #d9a441;
+  border-radius: 10px;
+  padding: 10px 14px;
+  background: #fffdf7;
+}
+.refund-status.refund-verified {
+  border-left-color: #4f7aa6;
+}
+.refund-status.refund-approved {
+  border-left-color: var(--green);
+}
+.refund-status.refund-rejected {
+  border-left-color: #b9aaaa;
+}
+.refund-status p {
+  margin: 4px 0 0;
+}
+.refund-status-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.refund-open {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  justify-self: start;
+}
+.refund-form {
+  display: grid;
+  gap: 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 16px;
+  background: #fff;
+}
+.refund-form label {
+  display: grid;
+  gap: 6px;
+  font-size: 13px;
+}
+.refund-form select,
+.refund-form textarea {
+  font: inherit;
+  font-size: 15px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+.refund-choice {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+}
+.refund-choice legend {
+  font-size: 13px;
+  margin-bottom: 8px;
+}
+.refund-choice label {
+  display: inline-flex !important;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+}
+.refund-items {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+.refund-items li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+}
+.refund-items li span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.refund-items select {
+  min-width: 96px;
+}
+.refund-amount {
+  margin: 0;
+}
+.refund-actions {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.refund-actions .primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+@media (max-width: 760px) {
+  .refund-actions .primary {
+    width: 100%;
+    justify-content: center;
+  }
+  .refund-form select,
+  .refund-form textarea {
+    font-size: 16px;
   }
 }

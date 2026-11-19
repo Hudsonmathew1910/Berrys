@@ -5,7 +5,8 @@ import { listAddresses } from "@/lib/addresses";
 import { getViewer } from "@/lib/auth";
 import { firebaseConfig } from "@/lib/firebase-verify";
 import { CheckoutView } from "@/components/shop/checkout-view";
-import { paymentsReady } from "@/lib/orders";
+import { paymentState } from "@/lib/orders";
+import { getSettings, shippingRule } from "@/lib/settings";
 
 export const metadata: Metadata = { title: "Checkout — Berry’s", robots: { index: false } };
 export const dynamic = "force-dynamic";
@@ -15,7 +16,11 @@ export default async function CheckoutPage() {
   if (!viewer) redirect("/login?next=/checkout");
   // Buying needs a Google email (and a verified mobile when mobile login is on).
   if (!viewer.email || (firebaseConfig() && !viewer.phone)) redirect("/login?link=1&next=/checkout");
-  const addresses = await listAddresses(viewer.userId);
+  const [addresses, settings, payment] = await Promise.all([
+    listAddresses(viewer.userId),
+    getSettings(),
+    paymentState(),
+  ]);
 
   return (
     <div className="page-section">
@@ -24,7 +29,9 @@ export default async function CheckoutPage() {
       </nav>
       <h1 className="page-title">Checkout</h1>
       <CheckoutView
-        paymentsReady={paymentsReady()}
+        paymentsReady={payment.ready && !settings.maintenance}
+        demo={payment.mode === "demo"}
+        shippingRule={shippingRule(settings)}
         prefill={{ name: viewer.name, phone: viewer.contactPhone || viewer.phone || "" }}
         email={viewer.email}
         addresses={addresses.map(({ id, name, phone, line1, line2, city, state, pincode, isDefault }) => ({

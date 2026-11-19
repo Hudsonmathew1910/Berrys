@@ -108,6 +108,11 @@ export async function getContent<K extends ContentKey>(key: K): Promise<Content<
   return { ...contentDefaults[key], ...saved } as Content<K>;
 }
 
+/** A raw stored row (used by lib/settings.ts, which shares this cached table). */
+export async function getStoredValue(key: string): Promise<Record<string, unknown> | undefined> {
+  return (await loadAll()).get(key);
+}
+
 export type HelpContent = { title: string; eyebrow: string; body: string };
 
 /** Help page text: "## Heading" lines start a section; blank lines separate paragraphs. */

@@ -2,10 +2,24 @@
 import { revalidatePath, updateTag } from "next/cache";
 import { OFFERS_TAG } from "@/lib/offers";
 import { headers } from "next/headers";
+import { redirect } from "next/navigation";
+import { deleteCustomer } from "@/lib/admin/insights";
+import { after } from "next/server";
+import {
+  sendDashboardResetCode,
+  sendRefundDecision,
+  sendRefundVerified,
+  sendStatusUpdate,
+} from "@/lib/email";
+import { decideRefundRequest, verifyRefundRequest } from "@/lib/refunds";
+import { razorpayConfigured } from "@/lib/orders";
+import { getSettings, updateSettings, type Settings } from "@/lib/settings";
+import { clearErrors, logError } from "@/lib/error-log";
 import { z, ZodError } from "zod";
 import { getDb, schema } from "@/db";
-import { eq } from "drizzle-orm";
-import { orderStatuses, permissionKeys, type Permission } from "@/db/schema";
+import { and, eq, gt, lt, sql } from "drizzle-orm";
+import { createHash, randomInt, timingSafeEqual } from "node:crypto";
+import { errorSources, orderStatuses, permissionKeys, type ErrorSource, type Permission } from "@/db/schema";
 import * as cat from "@/lib/admin/catalog";
 import * as ord from "@/lib/admin/orders";
 import * as team from "@/lib/admin/team";
@@ -19,10 +33,12 @@ import {
   saveContent,
   type ContentKey,
 } from "@/lib/content";
+import { isOwnerEmail } from "@/lib/auth";
 import { HttpError } from "@/lib/http-error";
 import { rateLimit } from "@/lib/rate-limit";
 import {
   actorName,
+  adminHref,
   adminPath,
   can,
   getStaffForViewer,
@@ -32,6 +48,7 @@ import {
   needsRehash,
   passwordProblem,
   requireAction,
+  type Access,
   unlockDashboard,
   verifyPassword,
   type Staff,
@@ -50,15 +67,17 @@ const done = (ok: string): ActionResult => {
 };
 
 /** Runs an action with permission checks; turns errors into a message for the form. */
-async function run(perm: Permission | "admin" | null, fn: (staff: Staff) => Promise<ActionResult>) {
+async function run(perm: Access | null, fn: (staff: Staff) => Promise<ActionResult>) {
+  let who = "";
   try {
     const staff = await requireAction(perm ?? undefined);
+    who = actorName(staff);
     return await fn(staff);
   } catch (e) {
     if (e instanceof HttpError) return { error: e.message, at: Date.now() };
     if (e instanceof ZodError)
       return { error: e.issues[0]?.message ?? "Please check the form.", at: Date.now() };
-    console.error(e);
+    await logError("dashboard", e, { path: (await headers()).get("referer") ?? "", ref: who });
     return { error: "Something went wrong. Please try again.", at: Date.now() };
   }
 }
@@ -108,6 +127,101 @@ export async function unlockAction(_: ActionResult, f: FormData): Promise<Action
   }
 }
 
+// ---------------------------------------------------------------- forgot password (code by email)
+
+const RESET_MINUTES = 10;
+const RESET_MAX_TRIES = 5;
+const codeHash = (staffId: string, code: string) =>
+  createHash("sha256").update(`${staffId}:${code}`).digest("hex");
+
+/** Emails a 6-digit code to the person's own (already signed-in) Google address. */
+export async function sendResetCodeAction(): Promise<ActionResult> {
+  try {
+    const staff = await getStaffForViewer();
+    if (!staff?.email) throw new HttpError(404, "Not found");
+    if (!(await getSettings()).dashboardPasswordReset)
+      return { error: "Password reset by email is turned off. Ask an admin to reset it." };
+    if (!staff.passwordHash) return { error: "You haven’t created a password yet." };
+    await rateLimit("dash-reset-send", staff.id, 3, 15 * 60);
+    await rateLimit("dash-reset-send-ip", await clientIp(), 10, 15 * 60);
+    const code = String(randomInt(0, 1_000_000)).padStart(6, "0");
+    await getDb()
+      .update(schema.staffMembers)
+      .set({
+        resetCodeHash: codeHash(staff.id, code),
+        resetCodeExpiresAt: new Date(Date.now() + RESET_MINUTES * 60_000),
+        resetAttempts: 0,
+      })
+      .where(eq(schema.staffMembers.id, staff.id));
+    await sendDashboardResetCode(staff.email, code);
+    await logActivity(actorName(staff), "Requested dashboard password reset code");
+    return {
+      ok: `We emailed a 6-digit code to ${staff.email}. It expires in ${RESET_MINUTES} minutes.`,
+      at: Date.now(),
+    };
+  } catch (e) {
+    if (e instanceof HttpError) return { error: e.message, at: Date.now() };
+    await logError("auth", e, { path: "dashboard reset code" });
+    return { error: "We couldn’t send the code. Please try again or ask an admin.", at: Date.now() };
+  }
+}
+
+/** Checks the emailed code, sets the new password and unlocks the dashboard. */
+export async function resetWithCodeAction(_: ActionResult, f: FormData): Promise<ActionResult> {
+  try {
+    const staff = await getStaffForViewer();
+    if (!staff?.email) throw new HttpError(404, "Not found");
+    if (!(await getSettings()).dashboardPasswordReset)
+      return { error: "Password reset by email is turned off." };
+    await rateLimit("dash-reset-verify", staff.id, 10, 15 * 60);
+    const code = str(f, "code").replace(/\s+/g, "");
+    const password = String(f.get("password") ?? "");
+    const problem = passwordProblem(password);
+    if (problem) return { error: problem, at: Date.now() };
+    if (password !== String(f.get("confirm") ?? ""))
+      return { error: "The two passwords don’t match.", at: Date.now() };
+
+    // Count the attempt first (atomically), so guessing is capped even with parallel requests.
+    const [row] = await getDb()
+      .update(schema.staffMembers)
+      .set({ resetAttempts: sql`${schema.staffMembers.resetAttempts} + 1` })
+      .where(
+        and(
+          eq(schema.staffMembers.id, staff.id),
+          gt(schema.staffMembers.resetCodeExpiresAt, new Date()),
+          lt(schema.staffMembers.resetAttempts, RESET_MAX_TRIES),
+        ),
+      )
+      .returning({ hash: schema.staffMembers.resetCodeHash });
+    if (!row?.hash) return { error: "This code has expired. Ask for a new one.", at: Date.now() };
+    const expected = Buffer.from(row.hash, "hex");
+    const actual = Buffer.from(codeHash(staff.id, /^\d{6}$/.test(code) ? code : "x"), "hex");
+    if (!timingSafeEqual(expected, actual)) {
+      await logActivity(actorName(staff), "Wrong dashboard reset code");
+      return { error: "That code is incorrect.", at: Date.now() };
+    }
+
+    await getDb()
+      .update(schema.staffMembers)
+      .set({
+        passwordHash: await hashPassword(password),
+        resetCodeHash: null,
+        resetCodeExpiresAt: null,
+        resetAttempts: 0,
+      })
+      .where(eq(schema.staffMembers.id, staff.id));
+    // Sign out any other unlocked dashboards with the old password.
+    await getDb().delete(schema.dashboardSessions).where(eq(schema.dashboardSessions.staffId, staff.id));
+    await logActivity(actorName(staff), "Reset dashboard password with emailed code");
+    await unlockDashboard(staff.id);
+    return done("Password changed — welcome back.");
+  } catch (e) {
+    if (e instanceof HttpError) return { error: e.message, at: Date.now() };
+    await logError("auth", e, { path: "dashboard reset" });
+    return { error: "Something went wrong. Please try again.", at: Date.now() };
+  }
+}
+
 export async function lockAction() {
   await lockDashboard();
   revalidatePath(`/${adminPath()}`, "layout");
@@ -131,14 +245,27 @@ export async function changePasswordAction(_: ActionResult, f: FormData) {
   });
 }
 
+export async function myNotificationsAction(_: ActionResult, f: FormData) {
+  return run(null, async (staff) => {
+    if (isOwnerEmail(staff.email)) return { error: "The store owner address doesn’t get new-order emails." };
+    const on = f.get("notifyOrders") === "on";
+    await team.setNotifyOrders(staff.id, on);
+    await logActivity(actorName(staff), on ? "Turned on new-order emails" : "Turned off new-order emails");
+    return done(on ? "You’ll get an email for every new order." : "New-order emails turned off.");
+  });
+}
+
 // ---------------------------------------------------------------- orders
 
 export async function orderStatusAction(_: ActionResult, f: FormData) {
   return run("orders", async (staff) => {
     const id = str(f, "orderId");
     const next = z.enum(orderStatuses).parse(str(f, "status"));
-    await ord.setOrderStatus(id, next, actorName(staff), str(f, "note").slice(0, 500));
+    const note = str(f, "note").slice(0, 500);
+    await ord.setOrderStatus(id, next, actorName(staff), note);
     await logActivity(actorName(staff), `Order marked ${next}`, id);
+    // Customer email (Settings → Emails), sent after the dashboard has its answer.
+    after(() => sendStatusUpdate(id, next, note));
     return done(`Order marked as ${next}.`);
   });
 }
@@ -173,12 +300,103 @@ export async function refundAction(_: ActionResult, f: FormData) {
     if (can(staff, "refunds")) {
       const refundId = await ord.refundOrder(id, actorName(staff), reason);
       await logActivity(actorName(staff), "Refunded order", id, `${refundId} — ${reason}`);
+      after(() => sendStatusUpdate(id, "refunded"));
       return done(`Refunded (${refundId}).`);
     }
     await team.createRequest("refund", id, reason, actorName(staff));
     await logActivity(actorName(staff), "Requested refund", id, reason);
     return done("Refund request sent to an admin.");
   });
+}
+
+/** Admins delete straight away; staff with Orders permission send a request to an admin. */
+export async function deleteOrderAction(_: ActionResult, f: FormData): Promise<ActionResult> {
+  const id = str(f, "orderId");
+  let deleted = false;
+  const result = await run("orders", async (staff) => {
+    const reason = str(f, "reason").slice(0, 500);
+    if (staff.role === "admin") {
+      const o = await ord.deleteOrder(id, actorName(staff));
+      await logActivity(actorName(staff), o.isDemo ? "Deleted demo order" : "Deleted order", id, reason);
+      deleted = true;
+      return done(`Order ${id} deleted.`);
+    }
+    if (!reason) return { error: "Please give a reason for the request." };
+    await team.createRequest("delete_order", id, reason, actorName(staff));
+    await logActivity(actorName(staff), "Requested order deletion", id, reason);
+    return done("Delete request sent to an admin.");
+  });
+  // The order page no longer exists: go back to the list.
+  if (deleted) redirect(adminHref("orders"));
+  return result;
+}
+
+/** Admins: remove every expired / cancelled (never paid) order in one go. */
+export async function deleteUnpaidOrdersAction() {
+  return run("admin", async (staff) => {
+    const n = await ord.deleteUnpaidOrders(actorName(staff));
+    await logActivity(actorName(staff), "Deleted unpaid orders", "", `${n} expired/cancelled`);
+    return done(
+      n ? `Deleted ${n} expired or cancelled orders.` : "There were no expired or cancelled orders.",
+    );
+  });
+}
+
+// ---------------------------------------------------------------- customer refund requests
+
+/** Staff (Orders permission): checked the reason → passed to an admin, with a recommendation. */
+export async function verifyRefundRequestAction(_: ActionResult, f: FormData) {
+  return run("orders", async (staff) => {
+    const recommend = str(f, "recommend") === "reject" ? "Recommend: reject" : "Recommend: approve";
+    const note = [recommend, str(f, "note").slice(0, 500)].filter(Boolean).join(" — ");
+    const req = await verifyRefundRequest(str(f, "id"), actorName(staff), note);
+    await logActivity(actorName(staff), "Verified refund request", req.orderId, note);
+    const order = await orderRow(req.orderId);
+    if (order) after(() => sendRefundVerified(order, req));
+    return done("Verified — an admin has been asked to approve it.");
+  });
+}
+
+/** Admins: accept or reject. The customer is emailed either way. */
+export async function decideRefundRequestAction(_: ActionResult, f: FormData) {
+  return run("admin", async (staff) => {
+    const decision = str(f, "decision") === "approve" ? "approved" : "rejected";
+    const note = str(f, "note").slice(0, 500);
+    if (decision === "rejected" && note.length < 3)
+      return { error: "Please write a short reason for the customer." };
+    const req = await decideRefundRequest(str(f, "id"), decision, actorName(staff), note);
+    await logActivity(
+      actorName(staff),
+      decision === "approved" ? "Approved refund request" : "Rejected refund request",
+      req.orderId,
+      note,
+    );
+    const order = await orderRow(req.orderId);
+    if (order) after(() => sendRefundDecision(order, req));
+    return done(
+      decision === "approved"
+        ? "Refund approved — the customer has been emailed. Send the money back from this order once Razorpay is connected."
+        : "Refund rejected — the customer has been emailed.",
+    );
+  });
+}
+
+const orderRow = async (id: string) =>
+  (await getDb().select().from(schema.orders).where(eq(schema.orders.id, id)).limit(1))[0] ?? null;
+
+// ---------------------------------------------------------------- customers
+
+/** Admins only. Orders are kept for the records, without the account link. */
+export async function deleteCustomerAction(_: ActionResult, f: FormData): Promise<ActionResult> {
+  let deleted = false;
+  const result = await run("admin", async (staff) => {
+    const u = await deleteCustomer(str(f, "userId"));
+    await logActivity(actorName(staff), "Deleted customer account", u.email ?? u.phone ?? u.id);
+    deleted = true;
+    return done("Customer account deleted.");
+  });
+  if (deleted) redirect(adminHref("customers"));
+  return result;
 }
 
 // ---------------------------------------------------------------- products
@@ -406,6 +624,7 @@ export async function updateStaffAction(_: ActionResult, f: FormData) {
       permissions: permsFrom(f),
       active: f.get("active") === "on",
       name: str(f, "name").slice(0, 80),
+      notifyOrders: f.get("notifyOrders") === "on",
     });
     await logActivity(
       actorName(staff),
@@ -443,8 +662,12 @@ export async function decideRequestAction(_: ActionResult, f: FormData) {
     await team.decideRequest(req.id, decision, actorName(staff), note, (r) =>
       r.type === "refund"
         ? ord.refundOrder(r.targetId, actorName(staff), r.reason)
-        : cat.deleteProduct(r.targetId),
+        : r.type === "delete_order"
+          ? ord.deleteOrder(r.targetId, actorName(staff))
+          : cat.deleteProduct(r.targetId),
     );
+    if (decision === "approved" && req.type === "refund")
+      after(() => sendStatusUpdate(req.targetId, "refunded"));
     await logActivity(
       actorName(staff),
       `${decision === "approved" ? "Approved" : "Rejected"} ${req.type} request`,
@@ -452,5 +675,80 @@ export async function decideRequestAction(_: ActionResult, f: FormData) {
       note,
     );
     return done(decision === "approved" ? "Approved and done." : "Request rejected.");
+  });
+}
+
+// ---------------------------------------------------------------- settings (admins only)
+
+const settingSections = {
+  store: ["siteName", "tagline", "supportEmail", "supportPhone", "whatsapp", "storeAddress", "logoUrl"],
+  social: ["instagram", "facebook", "youtube", "x", "pinterest"],
+  seo: ["seoTitle", "seoDescription", "seoKeywords", "seoImage"],
+  shipping: ["shippingFee", "freeShippingAbove", "returnDays"],
+  emails: ["emailOrderStatus", "emailLoginAlert", "emailTeamNewOrder", "dashboardPasswordReset"],
+  maintenance: ["maintenance", "maintenanceMessage"],
+  logs: ["errorLogDays"],
+} as const satisfies Record<string, readonly (keyof Settings)[]>;
+const booleanSettings = new Set<keyof Settings>([
+  "emailOrderStatus",
+  "emailLoginAlert",
+  "emailTeamNewOrder",
+  "dashboardPasswordReset",
+  "maintenance",
+]);
+
+export async function saveSettingsAction(_: ActionResult, f: FormData) {
+  return run("admin", async (staff) => {
+    const section = str(f, "section") as keyof typeof settingSections;
+    const keys = settingSections[section];
+    if (!keys) return { error: "Unknown settings section." };
+    const change: Record<string, unknown> = {};
+    for (const k of keys) change[k] = booleanSettings.has(k) ? f.get(k) === "on" : str(f, k);
+    for (const k of ["logoUrl", "seoImage"] as const) {
+      if (typeof change[k] === "string" && change[k] && !isAllowedImageUrl(change[k] as string))
+        return { error: "Please upload the image again." };
+    }
+    const before = await getSettings();
+    await updateSettings(change as Partial<Settings>, actorName(staff));
+    const changed = keys.filter((k) => String(before[k]) !== String(change[k]));
+    await logActivity(actorName(staff), "Changed settings", section, changed.join(", "));
+    revalidatePath("/", "layout");
+    return done(
+      section === "maintenance"
+        ? change.maintenance
+          ? "Maintenance mode is ON — customers now see the “back soon” page."
+          : "Maintenance mode is off — the shop is open."
+        : "Settings saved.",
+    );
+  });
+}
+
+/** Razorpay on/off. Off = demo payments for everyone (demo orders are deleted after a minute). */
+export async function paymentModeAction(_: ActionResult, f: FormData) {
+  return run("admin", async (staff) => {
+    const mode: Settings["paymentMode"] = f.get("on") === "on" ? "razorpay" : "demo";
+    await updateSettings({ paymentMode: mode }, actorName(staff));
+    await logActivity(
+      actorName(staff),
+      mode === "razorpay" ? "Turned Razorpay on" : "Turned Razorpay off (demo payments on)",
+    );
+    revalidatePath("/", "layout");
+    return done(
+      mode === "demo"
+        ? "Razorpay is OFF — demo payments are ON. Anyone can check out without paying; demo orders are deleted after 1 minute."
+        : razorpayConfigured()
+          ? "Razorpay payments are ON."
+          : "Razorpay is ON, but its keys aren’t set yet — checkout stays closed until they are.",
+    );
+  });
+}
+
+export async function clearErrorsAction(_: ActionResult, f: FormData) {
+  return run("admin", async (staff) => {
+    const source = str(f, "source");
+    const valid = (errorSources as readonly string[]).includes(source) ? (source as ErrorSource) : undefined;
+    await clearErrors(valid);
+    await logActivity(actorName(staff), "Cleared error log", valid ?? "all");
+    return done("Error log cleared.");
   });
 }

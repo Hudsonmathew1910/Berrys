@@ -179,6 +179,13 @@ export const orders = pgTable(
     refundedAt: timestamp("refunded_at", { withTimezone: true }),
     /** Internal note for staff. */
     staffNote: text("staff_note").notNull().default(""),
+    /**
+     * Placed while Razorpay was off (demo payments): no money was taken, and
+     * the order is deleted automatically one minute later (stock restored).
+     */
+    isDemo: boolean("is_demo").notNull().default(false),
+    /** Latest customer refund request on this order (shown in the dashboard order list). */
+    refundRequest: text("refund_request").$type<RefundRequestStatus>(),
   },
   (t) => [
     index("orders_status_idx").on(t.status),
@@ -186,6 +193,7 @@ export const orders = pgTable(
     index("orders_created_idx").on(t.createdAt),
     index("orders_paid_idx").on(t.paidAt),
     index("orders_email_status_idx").on(t.email, t.status),
+    index("orders_demo_idx").on(t.isDemo, t.createdAt),
   ],
 ).enableRLS();
 
@@ -246,6 +254,12 @@ export const staffMembers = pgTable("staff_members", {
   createdBy: text("created_by").notNull().default(""),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
+  /** Gets an email for every new paid order (the store owner never does). */
+  notifyOrders: boolean("notify_orders").notNull().default(false),
+  /** "Forgot password" one-time code sent to their Gmail (sha256, short-lived). */
+  resetCodeHash: text("reset_code_hash"),
+  resetCodeExpiresAt: timestamp("reset_code_expires_at", { withTimezone: true }),
+  resetAttempts: integer("reset_attempts").notNull().default(0),
 }).enableRLS();
 
 /**
@@ -330,8 +344,8 @@ export const offers = pgTable("offers", {
 /** Staff requests for actions they aren't allowed to do themselves (refunds, deletions). */
 export const approvalRequests = pgTable("approval_requests", {
   id: uuid("id").primaryKey().defaultRandom(),
-  /** refund | delete_product */
-  type: text("type").$type<"refund" | "delete_product">().notNull(),
+  /** refund | delete_product | delete_order */
+  type: text("type").$type<"refund" | "delete_product" | "delete_order">().notNull(),
   targetId: text("target_id").notNull(),
   reason: text("reason").notNull().default(""),
   status: text("status")
@@ -397,4 +411,64 @@ export const addresses = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index("addresses_user_idx").on(t.userId)],
+).enableRLS();
+
+/** Errors on the website, payments and emails, shown in Settings → Developer. */
+export const errorLogs = pgTable(
+  "error_logs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    source: text("source").$type<ErrorSource>().notNull(),
+    message: text("message").notNull(),
+    detail: text("detail").notNull().default(""),
+    path: text("path").notNull().default(""),
+    ref: text("ref").notNull().default(""),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("error_logs_created_idx").on(t.createdAt), index("error_logs_source_idx").on(t.source)],
+).enableRLS();
+export const errorSources = ["server", "payment", "email", "auth", "dashboard", "browser"] as const;
+export type ErrorSource = (typeof errorSources)[number];
+
+export const refundRequestStatuses = ["requested", "verified", "approved", "rejected"] as const;
+export type RefundRequestStatus = (typeof refundRequestStatuses)[number];
+export type RefundLine = {
+  orderItemId: string;
+  productId: string;
+  name: string;
+  size: string;
+  quantity: number;
+  price: number;
+};
+
+/**
+ * Refund requests from customers (whole order or chosen pieces).
+ * requested → (staff checks the reason) verified → admin approved / rejected.
+ * The money is sent back separately (Razorpay refund).
+ */
+export const refundRequests = pgTable(
+  "refund_requests",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orderId: text("order_id")
+      .notNull()
+      .references(() => orders.id, { onDelete: "cascade" }),
+    userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
+    /** Whole order, or only the pieces in `items`. */
+    wholeOrder: boolean("whole_order").notNull(),
+    items: jsonb("items").$type<RefundLine[]>().notNull(),
+    /** Amount the customer would get back (₹). */
+    amount: integer("amount").notNull(),
+    reason: text("reason").notNull(),
+    details: text("details").notNull().default(""),
+    status: text("status").$type<RefundRequestStatus>().notNull().default("requested"),
+    verifiedBy: text("verified_by"),
+    verifiedAt: timestamp("verified_at", { withTimezone: true }),
+    staffNote: text("staff_note").notNull().default(""),
+    decidedBy: text("decided_by"),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+    decisionNote: text("decision_note").notNull().default(""),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("refund_requests_order_idx").on(t.orderId), index("refund_requests_status_idx").on(t.status)],
 ).enableRLS();

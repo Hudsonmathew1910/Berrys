@@ -7,12 +7,18 @@ import { useToast } from "@/components/store/toast";
 import { useProducts } from "./use-products";
 
 /** The full bag page: lines, quantities, totals and the way to checkout. */
-export function CartView({ loggedIn }: { loggedIn: boolean }) {
+export function CartView({
+  loggedIn,
+  shippingRule,
+}: {
+  loggedIn: boolean;
+  shippingRule: { fee: number; freeAbove: number };
+}) {
   const bag = useBag();
   const toast = useToast();
   const { products, loading } = useProducts(bag.map((l) => l.productId));
   const { count, subtotal } = bagTotals(bag, products);
-  const shipping = shippingFor(subtotal);
+  const shipping = shippingFor(subtotal, shippingRule);
   const problems = bag.some((l) => {
     const p = products.find((x) => x.id === l.productId);
     return !p || (p.stock[l.size] ?? 0) < l.quantity;

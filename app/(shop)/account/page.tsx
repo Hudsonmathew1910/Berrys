@@ -6,7 +6,9 @@ import { getViewer } from "@/lib/auth";
 import { money } from "@/lib/catalog";
 import { firebaseConfig } from "@/lib/firebase-verify";
 import { statusLabels } from "@/lib/order-status";
+import { refundStatusLabels } from "@/lib/refunds";
 import { formatIndianMobile } from "@/lib/phone";
+import { getSettings, shippingRule } from "@/lib/settings";
 import { ordersForUser } from "@/lib/store-data";
 import { AddressesManager } from "@/components/shop/addresses-manager";
 import { CartView } from "@/components/shop/cart-view";
@@ -20,7 +22,11 @@ export const dynamic = "force-dynamic";
 export default async function AccountPage() {
   const viewer = (await getViewer())!;
   const phoneLogin = !!firebaseConfig();
-  const [orders, addresses] = await Promise.all([ordersForUser(viewer.userId), listAddresses(viewer.userId)]);
+  const [orders, addresses, settings] = await Promise.all([
+    ordersForUser(viewer.userId),
+    listAddresses(viewer.userId),
+    getSettings(),
+  ]);
 
   return (
     <div className="account-sections">
@@ -89,8 +95,16 @@ export default async function AccountPage() {
                     <small>{o.createdAt.toLocaleDateString("en-IN", { dateStyle: "medium" })}</small>
                   </div>
                   <span className={"status-pill status-" + o.status}>{statusLabels[o.status]}</span>
+                  {o.isDemo && <span className="status-pill demo-pill">DEMO</span>}
+                  {o.refundRequest && (
+                    <span className={`status-pill refund-pill refund-${o.refundRequest}`}>
+                      {refundStatusLabels[o.refundRequest]}
+                    </span>
+                  )}
                 </div>
-                <p className="muted">{o.items.map((i) => `${i.name} (${i.size}) × ${i.quantity}`).join(" · ")}</p>
+                <p className="muted">
+                  {o.items.map((i) => `${i.name} (${i.size}) × ${i.quantity}`).join(" · ")}
+                </p>
                 <div className="order-foot">
                   <span>
                     {o.items.reduce((a, i) => a + i.quantity, 0)} items · <b>{money(o.total)}</b>
@@ -129,7 +143,7 @@ export default async function AccountPage() {
 
       <section id="bag" className="account-section">
         <h2 className="section-title">My bag</h2>
-        <CartView loggedIn />
+        <CartView loggedIn shippingRule={shippingRule(settings)} />
       </section>
     </div>
   );

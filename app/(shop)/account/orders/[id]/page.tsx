@@ -7,6 +7,9 @@ import { money } from "@/lib/catalog";
 import { formatIndianMobile } from "@/lib/phone";
 import { orderForUser } from "@/lib/store-data";
 import { statusLabels } from "@/lib/order-status";
+import { refundBlocker, refundReasons, refundStatusLabels, requestsForOrder } from "@/lib/refunds";
+import { getSettings } from "@/lib/settings";
+import { RefundRequestForm } from "@/components/shop/refund-request-form";
 
 export const metadata: Metadata = { title: "Order details — Berry’s", robots: { index: false } };
 export const dynamic = "force-dynamic";
@@ -18,6 +21,8 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
   const viewer = (await getViewer())!;
   const order = await orderForUser(viewer.userId, decodeURIComponent((await params).id));
   if (!order) notFound();
+  const [refunds, settings] = await Promise.all([requestsForOrder(order.id), getSettings()]);
+  const blocker = refundBlocker(order, settings, refunds);
 
   const closed = ["cancelled", "expired", "needs_refund"].includes(order.status);
   const steps = [
@@ -40,6 +45,12 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
           <p className="muted">Placed {fmt(order.createdAt)}</p>
         </div>
         <span className={"status-pill status-" + order.status}>{statusLabels[order.status]}</span>
+        {order.isDemo && <span className="status-pill demo-pill">DEMO ORDER</span>}
+        {order.refundRequest && (
+          <span className={`status-pill refund-pill refund-${order.refundRequest}`}>
+            {refundStatusLabels[order.refundRequest]}
+          </span>
+        )}
       </div>
 
       {closed ? (
@@ -136,6 +147,58 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
           </p>
         </section>
       </div>
+
+      {(refunds.length > 0 || !blocker) && (
+        <section className="account-card-box refund-box" id="refund">
+          <h2>Refunds</h2>
+          {refunds.map((r) => (
+            <div key={r.id} className={`refund-status refund-${r.status}`}>
+              <div className="refund-status-head">
+                <b>{refundStatusLabels[r.status]}</b>
+                <small>{fmt(r.createdAt)}</small>
+              </div>
+              <p>
+                {r.wholeOrder
+                  ? "Whole order"
+                  : r.items.map((i) => `${i.name} (${i.size}) × ${i.quantity}`).join(", ")}{" "}
+                · {money(r.amount)} · {r.reason}
+              </p>
+              {r.status === "approved" && (
+                <p className="muted">
+                  Approved — the money goes back to your original payment method (usually 5–7 working days).
+                </p>
+              )}
+              {r.status === "rejected" && r.decisionNote && <p className="muted">{r.decisionNote}</p>}
+              {(r.status === "requested" || r.status === "verified") && (
+                <p className="muted">Our team is reviewing it. We’ll email you when it’s decided.</p>
+              )}
+            </div>
+          ))}
+          {!blocker ? (
+            <>
+              {settings.returnDays > 0 && order.status === "delivered" && (
+                <p className="muted">
+                  You can ask for a refund within {settings.returnDays} days of delivery.
+                </p>
+              )}
+              <RefundRequestForm
+                orderId={order.id}
+                shipping={order.shipping}
+                reasons={refundReasons}
+                items={order.items.map((i) => ({
+                  id: i.id,
+                  name: i.name,
+                  size: i.size,
+                  quantity: i.quantity,
+                  price: i.price,
+                }))}
+              />
+            </>
+          ) : (
+            refunds.length > 0 && <p className="muted">{blocker}</p>
+          )}
+        </section>
+      )}
     </>
   );
 }

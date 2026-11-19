@@ -4,7 +4,14 @@ import { getDb, schema } from "@/db";
 import type { OrderStatus } from "@/db/schema";
 import { HttpError } from "@/lib/http-error";
 import { nextStatuses } from "@/lib/order-status";
-import { addOrderEvent, isMockPayments, releaseExpiredOrders, restoreStock } from "@/lib/orders";
+import {
+  addOrderEvent,
+  DEMO_PAYMENT_PREFIX,
+  eraseOrder,
+  releaseExpiredOrders,
+  restoreStock,
+} from "@/lib/orders";
+import { logError } from "@/lib/error-log";
 import { refundPayment } from "@/lib/razorpay";
 
 const { orders, orderItems, orderEvents } = schema;
@@ -17,6 +24,7 @@ export async function listOrders(f: { status?: string; q?: string; page: number 
   await releaseExpiredOrders();
   const where: SQL[] = [];
   if (f.status === "open") where.push(inArray(orders.status, ["paid", "packed", "shipped"]));
+  else if (f.status === "refunds") where.push(inArray(orders.refundRequest, ["requested", "verified"]));
   else if (f.status) where.push(eq(orders.status, f.status as OrderStatus));
   else where.push(sql`${orders.status} <> 'pending_payment'`);
   if (f.q) {
@@ -106,9 +114,8 @@ export async function refundOrder(orderId: string, actor: string, reason: string
   if (!refundable.includes(order.status)) throw new HttpError(400, "This order can’t be refunded.");
   if (!order.razorpayPaymentId) throw new HttpError(400, "This order has no payment to refund.");
 
-  const isMock = order.razorpayPaymentId.startsWith("pay_mock_");
-  if (isMock && !isMockPayments())
-    throw new HttpError(400, "Test payments can only be refunded in test mode.");
+  // Demo orders took no money, so their "refund" is simulated.
+  const isMock = order.razorpayPaymentId.startsWith(DEMO_PAYMENT_PREFIX);
   // Claim the refund atomically: if two people click "Refund" at once, only
   // one gets past this line, so Razorpay is never asked to refund twice.
   const [claimed] = await db
@@ -124,6 +131,7 @@ export async function refundOrder(orderId: string, actor: string, reason: string
       ? { id: `rfnd_mock_${crypto.randomUUID().slice(0, 8)}` }
       : await refundPayment(order.razorpayPaymentId, { order: orderId });
   } catch (e) {
+    await logError("payment", e, { path: "refund", ref: orderId });
     // Release the claim so it can be retried.
     await db
       .update(orders)
@@ -150,4 +158,41 @@ export async function refundOrder(orderId: string, actor: string, reason: string
 export async function orderItemsFor(orderIds: string[]) {
   if (!orderIds.length) return [];
   return getDb().select().from(orderItems).where(inArray(orderItems.orderId, orderIds));
+}
+
+/**
+ * Deletes an order for good. Orders still waiting for a real payment can't be
+ * deleted (Razorpay could still capture it); orders mid-refund neither.
+ */
+export async function deleteOrder(orderId: string, actor: string) {
+  return getDb().transaction(async (tx) => {
+    const [order] = await tx.select().from(orders).where(eq(orders.id, orderId)).for("update");
+    if (!order) throw new HttpError(404, "Order not found.");
+    if (order.status === "pending_payment" && !order.isDemo)
+      throw new HttpError(
+        400,
+        "This order is still waiting for payment. You can delete it once it expires (30 minutes).",
+      );
+    if (order.refundId === REFUND_PENDING)
+      throw new HttpError(409, "This order is being refunded right now.");
+    await eraseOrder(tx, order, actor);
+    return order;
+  });
+}
+
+/** Removes every expired or cancelled (never paid) order. Returns how many. */
+export async function deleteUnpaidOrders(actor: string) {
+  const db = getDb();
+  const ids = await db
+    .select({ id: orders.id })
+    .from(orders)
+    .where(inArray(orders.status, ["expired", "cancelled"]))
+    .limit(500);
+  for (const { id } of ids) {
+    await db.transaction(async (tx) => {
+      const [o] = await tx.select().from(orders).where(eq(orders.id, id)).for("update", { skipLocked: true });
+      if (o && (o.status === "expired" || o.status === "cancelled")) await eraseOrder(tx, o, actor);
+    });
+  }
+  return ids.length;
 }

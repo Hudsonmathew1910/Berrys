@@ -1,4 +1,7 @@
 import "server-only";
+import { after } from "next/server";
+import type { ErrorSource } from "@/db/schema";
+import { logError } from "@/lib/error-log";
 import { ZodError } from "zod";
 import { HttpError } from "@/lib/http-error";
 
@@ -45,11 +48,20 @@ export function assertSameOrigin(request: Request) {
 }
 
 /** Turns thrown errors into JSON responses without leaking internals. */
-export function handleError(e: unknown, fallback = "Something went wrong. Please try again.") {
+export function handleError(
+  e: unknown,
+  fallback = "Something went wrong. Please try again.",
+  log: { source?: ErrorSource; path?: string; ref?: string } = {},
+) {
   if (e instanceof HttpError) return json({ error: e.message }, e.status);
   if (e instanceof ZodError) {
     return json({ error: e.issues[0]?.message || "Please check the details you entered." }, 400);
   }
-  console.error(e);
+  // Unexpected: record it for Settings → Developer → Error log, after the response is sent.
+  try {
+    after(() => logError(log.source ?? "server", e, { path: log.path, ref: log.ref }));
+  } catch {
+    console.error(e);
+  }
   return json({ error: fallback }, 500);
 }

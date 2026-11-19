@@ -101,6 +101,15 @@ export function passwordProblem(pw: string) {
   return null;
 }
 
+/** Admins can do everything; staff get the permissions ticked for them. */
 export function can(staff: { role: string; permissions: string[] }, perm: Permission) {
   return staff.role === "admin" || staff.permissions.includes(perm);
 }
+
+/** "admin" = admins only (Team, Requests, Activity, Settings, Error log). */
+export type Access = Permission | "admin";
+export function canAccess(staff: { role: string; permissions: string[] }, access: Access) {
+  return access === "admin" ? staff.role === "admin" : can(staff, access);
+}
+
+export const roleLabels = { admin: "Admin", staff: "Shop staff" } as const;

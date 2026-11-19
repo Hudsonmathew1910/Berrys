@@ -25,6 +25,11 @@ export default async function SuccessPage({ searchParams }: { searchParams: Prom
             Your payment for order <b>{order.id}</b> arrived after the stock sold out. We’ll refund you in
             full — no action needed.
           </p>
+        ) : order?.isDemo ? (
+          <p>
+            <b>Demo order {order.id}</b> placed ({money(order.total)}) — no payment was taken. We’ve emailed a
+            demo confirmation to {order.email}. This order is deleted automatically after 1 minute.
+          </p>
         ) : order ? (
           <p>
             Thank you! Order <b>{order.id}</b> is confirmed ({money(order.total)}). We’ll email {order.email}{" "}

@@ -6,22 +6,38 @@ import { money } from "@/lib/catalog";
 import { nextStatuses, statusLabels } from "@/lib/order-status";
 import { orderWithItems } from "@/lib/store-data";
 import { adminHref, can, requirePage } from "@/lib/staff";
+import { refundStatusLabels, requestsForOrder } from "@/lib/refunds";
 import { ActionForm } from "@/components/dashboard/action-form";
-import { orderStatusAction, refundAction, shippingAction } from "../../actions";
+import { RefundRequestCard } from "@/components/dashboard/refund-request-card";
+import { deleteOrderAction, orderStatusAction, refundAction, shippingAction } from "../../actions";
 
 const fmt = (d: Date | null) =>
   d ? d.toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" }) : "—";
 
+function deleteHint(status: string, demo: boolean) {
+  if (demo) return "Demo order: deleting undoes everything it changed (stock, sales, history).";
+  if (["paid", "packed"].includes(status))
+    return "The order hasn’t left the shop, so its pieces go back into stock. Refund first if the customer paid.";
+  if (["shipped", "delivered", "refunded"].includes(status))
+    return "Stock is not changed (the parcel already left the shop). The order disappears from sales.";
+  return "Removes this unpaid order and its history.";
+}
+
 export default async function OrderDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const staff = await requirePage("orders");
   const id = decodeURIComponent((await params).id);
-  const [order, history] = await Promise.all([orderWithItems(id), orderHistory(id)]);
+  const [order, history, refunds] = await Promise.all([
+    orderWithItems(id),
+    orderHistory(id),
+    requestsForOrder(id),
+  ]);
   if (!order) notFound();
   const next = nextStatuses[order.status] ?? [];
   const refundable =
     ["paid", "packed", "shipped", "delivered", "needs_refund"].includes(order.status) &&
     !!order.razorpayPaymentId;
   const canRefund = can(staff, "refunds");
+  const isAdmin = staff.role === "admin";
 
   return (
     <div className="dash-page">
@@ -34,9 +50,25 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
           <span className="muted">Placed {fmt(order.createdAt)}</span>
         </div>
         <span className={"status-pill big status-" + order.status}>{statusLabels[order.status]}</span>
+        {order.isDemo && (
+          <span className="status-pill big demo-pill">DEMO — not paid, deleted after 1 minute</span>
+        )}
+        {order.refundRequest && (
+          <span className={`status-pill big refund-pill refund-${order.refundRequest}`}>
+            {refundStatusLabels[order.refundRequest]}
+          </span>
+        )}
       </div>
 
       <div className="dash-grid">
+        {refunds.length > 0 && (
+          <section className="dash-panel wide refund-panel" id="refund-requests">
+            <h2>Customer refund requests</h2>
+            {refunds.map((r) => (
+              <RefundRequestCard key={r.id} r={r} isAdmin={isAdmin} canVerify={can(staff, "orders")} />
+            ))}
+          </section>
+        )}
         <section className="dash-panel wide">
           <h2>Items</h2>
           <ul className="dash-list">
@@ -168,6 +200,44 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
             </ActionForm>
           </section>
         )}
+
+        <section className="dash-panel danger-zone">
+          <h2>Delete order</h2>
+          {order.status === "pending_payment" && !order.isDemo ? (
+            <p className="muted">
+              This order is still waiting for payment. It can be deleted once it expires (30 minutes).
+            </p>
+          ) : (
+            <>
+              <p className="muted">
+                {isAdmin
+                  ? deleteHint(order.status, order.isDemo)
+                  : "An admin will review your request before the order is deleted."}
+              </p>
+              <ActionForm
+                action={deleteOrderAction}
+                confirm={
+                  isAdmin
+                    ? `Delete order ${order.id} permanently?${
+                        ["paid", "packed", "shipped", "delivered"].includes(order.status) && !order.isDemo
+                          ? " It was paid — it will disappear from sales and can no longer be refunded here."
+                          : ""
+                      }`
+                    : undefined
+                }
+              >
+                <input type="hidden" name="orderId" value={order.id} />
+                <label>
+                  Reason {isAdmin && <small className="muted">(optional, saved in the activity log)</small>}
+                  <input name="reason" maxLength={500} required={!isAdmin} />
+                </label>
+                <button className={isAdmin ? "primary danger" : "outline"}>
+                  {isAdmin ? "Delete order" : "Send delete request"}
+                </button>
+              </ActionForm>
+            </>
+          )}
+        </section>
 
         <section className="dash-panel wide">
           <h2>Order history</h2>

@@ -1,7 +1,10 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { getViewer } from "@/lib/auth";
+import { sendLoginAlert } from "@/lib/email";
 import { serverEnv } from "@/lib/env";
+import { logError } from "@/lib/error-log";
+import { clientIp } from "@/lib/rate-limit";
 import { finishGoogleLogin, GOOGLE_STATE_COOKIE } from "@/lib/google";
 import { HttpError } from "@/lib/http-error";
 import { safeNext } from "@/lib/safe-next";
@@ -46,12 +49,44 @@ export async function GET(request: Request) {
     } else {
       const user = await loginWithGoogle(profile);
       await createSession(user.id);
+      // "New sign-in" email (Settings → Emails), sent after the redirect.
+      const info = { ip: clientIp(request), device: describeDevice(request.headers.get("user-agent") ?? "") };
+      after(() => sendLoginAlert(profile.email, user.name || profile.name || "", info));
     }
     // Logged in (or Google linked): continue to where the visitor was going.
     return NextResponse.redirect(`${site}${next}`);
   } catch (e) {
     if (e instanceof HttpError) return fail(e.status === 409 ? "link_conflict" : "google_unverified");
-    console.error("Google login failed", e);
+    await logError("auth", e, { path: "/auth/google/callback" });
     return fail("google_failed");
   }
+}
+
+/** "Chrome on Android" style summary of a user agent, for the sign-in email. */
+function describeDevice(ua: string) {
+  const browser = /Edg\//.test(ua)
+    ? "Edge"
+    : /OPR\//.test(ua)
+      ? "Opera"
+      : /SamsungBrowser/.test(ua)
+        ? "Samsung Internet"
+        : /Chrome\//.test(ua)
+          ? "Chrome"
+          : /Firefox\//.test(ua)
+            ? "Firefox"
+            : /Safari\//.test(ua)
+              ? "Safari"
+              : "A browser";
+  const os = /Android/.test(ua)
+    ? "Android"
+    : /iPhone|iPad/.test(ua)
+      ? "iPhone / iPad"
+      : /Windows/.test(ua)
+        ? "Windows"
+        : /Mac OS X/.test(ua)
+          ? "Mac"
+          : /Linux/.test(ua)
+            ? "Linux"
+            : "an unknown device";
+  return `${browser} on ${os}`;
 }

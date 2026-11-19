@@ -1,0 +1,314 @@
+import { emailConfigured, emailProvider } from "@/lib/email";
+import { razorpayConfigured } from "@/lib/orders";
+import { getSettings } from "@/lib/settings";
+import Link from "next/link";
+import { adminHref, adminPath, requirePage } from "@/lib/staff";
+import { ActionForm } from "@/components/dashboard/action-form";
+import { ImageField } from "@/components/dashboard/image-field";
+import { StatusDot, Toggle } from "@/components/dashboard/settings-ui";
+import { paymentModeAction, saveSettingsAction } from "../actions";
+
+const socialFields = [
+  ["instagram", "Instagram"],
+  ["facebook", "Facebook"],
+  ["youtube", "YouTube"],
+  ["x", "X (Twitter)"],
+  ["pinterest", "Pinterest"],
+] as const;
+
+export default async function SettingsPage() {
+  await requirePage("admin");
+  const s = await getSettings();
+  const mail = emailConfigured();
+  const rzp = razorpayConfigured();
+  const checks: [string, boolean, string][] = [
+    ["Environment", true, process.env.NODE_ENV === "production" ? "Production" : "Development"],
+    ["Database", !!process.env.DATABASE_URL, process.env.DATABASE_URL ? "Connected" : "DATABASE_URL missing"],
+    [
+      "Google login",
+      !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET),
+      process.env.GOOGLE_CLIENT_ID ? "Configured" : "GOOGLE_CLIENT_ID / SECRET missing",
+    ],
+    ["Razorpay keys", rzp, rzp ? "Set" : "Not set"],
+    [
+      "Razorpay webhook",
+      !!process.env.RAZORPAY_WEBHOOK_SECRET,
+      process.env.RAZORPAY_WEBHOOK_SECRET ? "Secret set" : "RAZORPAY_WEBHOOK_SECRET not set",
+    ],
+    ["Email", mail, mail ? emailProvider() : "Not set up"],
+    [
+      "Store owner",
+      !!process.env.STORE_OWNER_EMAIL,
+      process.env.STORE_OWNER_EMAIL ? "STORE_OWNER_EMAIL set" : "STORE_OWNER_EMAIL missing",
+    ],
+    [
+      "Dashboard address",
+      adminPath() !== "berrys-admin",
+      adminPath() !== "berrys-admin" ? "Custom ADMIN_PATH" : "Default — set ADMIN_PATH",
+    ],
+    [
+      "Product images",
+      !!(process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY),
+      "Supabase Storage",
+    ],
+  ];
+  const version = process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7);
+  const region = process.env.VERCEL_REGION;
+
+  return (
+    <div className="dash-page">
+      <div className="dash-heading">
+        <div>
+          <h1>Settings</h1>
+          <span className="muted">Changes apply to the website straight away.</span>
+        </div>
+      </div>
+
+      <div className="settings-grid">
+        <section className="dash-panel" id="store">
+          <h2>Store details</h2>
+          <ActionForm action={saveSettingsAction}>
+            <input type="hidden" name="section" value="store" />
+            <div className="form-grid">
+              <label>
+                Website name
+                <input name="siteName" required maxLength={40} defaultValue={s.siteName} />
+              </label>
+              <label>
+                Tagline
+                <input name="tagline" maxLength={80} defaultValue={s.tagline} />
+              </label>
+              <label>
+                Support email
+                <input name="supportEmail" type="email" maxLength={120} defaultValue={s.supportEmail} />
+              </label>
+              <label>
+                Contact number
+                <input name="supportPhone" type="tel" maxLength={20} defaultValue={s.supportPhone} />
+              </label>
+              <label>
+                WhatsApp number
+                <input
+                  name="whatsapp"
+                  type="tel"
+                  maxLength={20}
+                  defaultValue={s.whatsapp}
+                  placeholder="98765 43210"
+                />
+              </label>
+              <label className="wide">
+                Store address (shown on emails)
+                <textarea name="storeAddress" rows={2} maxLength={300} defaultValue={s.storeAddress} />
+              </label>
+            </div>
+            <ImageField
+              name="logoUrl"
+              label="Logo (square)"
+              initial={s.logoUrl}
+              fallback="/images/berrys-mark.webp"
+              hint="Shown in the header, footer and maintenance page. A square PNG, JPG or WebP works best."
+            />
+            <button className="primary">Save store details</button>
+          </ActionForm>
+        </section>
+
+        <section className="dash-panel" id="payments">
+          <h2>Payments</h2>
+          <p>
+            <StatusDot ok={rzp}>{rzp ? "Razorpay keys are set" : "Razorpay keys not set yet"}</StatusDot>
+          </p>
+          <ActionForm action={paymentModeAction}>
+            <Toggle
+              name="on"
+              title="Razorpay payments"
+              checked={s.paymentMode === "razorpay"}
+              text="Customers pay by UPI, cards, netbanking and wallets."
+            />
+            {s.paymentMode === "demo" && (
+              <p className="demo-banner">
+                <b>Demo payments are ON.</b> Anyone can check out without paying. Demo orders are marked
+                “DEMO” and deleted automatically 1 minute later, with their stock put back.
+              </p>
+            )}
+            <small className="muted">Turning Razorpay off switches demo payments on automatically.</small>
+            <button className="outline">Save</button>
+          </ActionForm>
+        </section>
+
+        <section className="dash-panel" id="shipping">
+          <h2>Shipping & returns</h2>
+          <ActionForm action={saveSettingsAction}>
+            <input type="hidden" name="section" value="shipping" />
+            <div className="form-grid">
+              <label>
+                Shipping charge (₹)
+                <input name="shippingFee" type="number" min={0} max={100000} defaultValue={s.shippingFee} />
+              </label>
+              <label>
+                Free shipping above (₹)
+                <input
+                  name="freeShippingAbove"
+                  type="number"
+                  min={0}
+                  max={100000}
+                  defaultValue={s.freeShippingAbove}
+                />
+              </label>
+              <label>
+                Return / refund window (days after delivery)
+                <input name="returnDays" type="number" min={0} max={90} defaultValue={s.returnDays} />
+              </label>
+            </div>
+            <small className="muted">
+              Shipping 0 = always free. Free-above 0 = no free-shipping limit. Return window 0 = no returns.
+            </small>
+            <button className="primary">Save shipping</button>
+          </ActionForm>
+        </section>
+
+        <section className="dash-panel" id="emails">
+          <h2>Emails</h2>
+          <p>
+            <StatusDot ok={mail}>
+              {mail ? `Sending with ${emailProvider()}` : "Email isn’t set up (SMTP_USER / SMTP_PASS)"}
+            </StatusDot>
+          </p>
+          <ActionForm action={saveSettingsAction}>
+            <input type="hidden" name="section" value="emails" />
+            <Toggle
+              name="emailOrderStatus"
+              title="Order status emails"
+              text="Email the customer whenever their order is packed, shipped, delivered, cancelled or refunded."
+              checked={s.emailOrderStatus}
+            />
+            <Toggle
+              name="emailTeamNewOrder"
+              title="New order emails to the team"
+              text="Team members with “Email me every new order” ticked get each new paid order (never the store owner address)."
+              checked={s.emailTeamNewOrder}
+            />
+            <Toggle
+              name="emailLoginAlert"
+              title="Sign-in alerts"
+              text="Email people each time their account signs in to the website."
+              checked={s.emailLoginAlert}
+            />
+            <Toggle
+              name="dashboardPasswordReset"
+              title="Forgot dashboard password by email"
+              text="“Forgot password?” on the dashboard lock screen emails a 6-digit code to the person’s Gmail."
+              checked={s.dashboardPasswordReset}
+            />
+            <button className="primary">Save email settings</button>
+          </ActionForm>
+        </section>
+
+        <section className={"dash-panel" + (s.maintenance ? " highlight" : "")} id="maintenance">
+          <h2>Maintenance mode</h2>
+          <ActionForm action={saveSettingsAction}>
+            <input type="hidden" name="section" value="maintenance" />
+            <Toggle
+              name="maintenance"
+              title="Close the shop for maintenance"
+              text="Customers see a “we’ll be back soon” page. The team still sees the shop and the dashboard."
+              checked={s.maintenance}
+            />
+            <label>
+              Message for customers
+              <textarea
+                name="maintenanceMessage"
+                rows={2}
+                maxLength={300}
+                defaultValue={s.maintenanceMessage}
+              />
+            </label>
+            <button className="primary">Save</button>
+          </ActionForm>
+        </section>
+
+        <section className="dash-panel" id="social">
+          <h2>Social media</h2>
+          <ActionForm action={saveSettingsAction}>
+            <input type="hidden" name="section" value="social" />
+            <div className="form-grid">
+              {socialFields.map(([k, label]) => (
+                <label key={k}>
+                  {label}
+                  <input name={k} type="url" maxLength={300} defaultValue={s[k]} placeholder="https://…" />
+                </label>
+              ))}
+            </div>
+            <small className="muted">Shown in the website footer. Leave empty to hide.</small>
+            <button className="primary">Save links</button>
+          </ActionForm>
+        </section>
+
+        <section className="dash-panel" id="status">
+          <h2>System status</h2>
+          <ul className="status-list">
+            {checks.map(([label, ok, text]) => (
+              <li key={label}>
+                <span>{label}</span>
+                <StatusDot ok={ok}>{text}</StatusDot>
+              </li>
+            ))}
+            {(version || region) && (
+              <li>
+                <span>Deployment</span>
+                <span className="muted">
+                  {version && `Version ${version}`}
+                  {version && region && " · "}
+                  {region && `Region ${region}`}
+                </span>
+              </li>
+            )}
+          </ul>
+        </section>
+
+        <section className="dash-panel" id="logs">
+          <h2>Log settings</h2>
+          <ActionForm action={saveSettingsAction}>
+            <input type="hidden" name="section" value="logs" />
+            <label>
+              Keep errors for (days)
+              <input name="errorLogDays" type="number" min={1} max={365} defaultValue={s.errorLogDays} />
+            </label>
+            <button className="outline">Save</button>
+          </ActionForm>
+          <p className="muted">
+            See the <Link href={adminHref("errors")}>Error log</Link> and the{" "}
+            <Link href={adminHref("activity")}>Activity log</Link>.
+          </p>
+        </section>
+
+        <section className="dash-panel wide" id="seo">
+          <h2>SEO (Google & link previews)</h2>
+          <ActionForm action={saveSettingsAction}>
+            <input type="hidden" name="section" value="seo" />
+            <label>
+              Page title <small className="muted">(up to 70 characters)</small>
+              <input name="seoTitle" maxLength={70} defaultValue={s.seoTitle} />
+            </label>
+            <label>
+              Description{" "}
+              <small className="muted">(up to 170 characters — shown under the title on Google)</small>
+              <textarea name="seoDescription" rows={2} maxLength={170} defaultValue={s.seoDescription} />
+            </label>
+            <label>
+              Keywords <small className="muted">(comma separated)</small>
+              <input name="seoKeywords" maxLength={200} defaultValue={s.seoKeywords} />
+            </label>
+            <ImageField
+              name="seoImage"
+              label="Share image (WhatsApp and Facebook link previews)"
+              initial={s.seoImage}
+              fallback="/images/berrys-logo-full.webp"
+              hint="1200×630 works best."
+            />
+            <button className="primary">Save SEO</button>
+          </ActionForm>
+        </section>
+      </div>
+    </div>
+  );
+}

@@ -1,6 +1,8 @@
 import "server-only";
 import { and, desc, eq, gte, ilike, inArray, isNotNull, lt, or, sql, type SQL } from "drizzle-orm";
 import { getDb, schema } from "@/db";
+import { isOwnerEmail } from "@/lib/auth";
+import { HttpError } from "@/lib/http-error";
 import { salesStatuses } from "@/lib/order-status";
 
 const { orders, orderItems, users, addresses, products } = schema;
@@ -198,4 +200,26 @@ export async function customerDetail(id: string) {
     db.select().from(addresses).where(eq(addresses.userId, id)),
   ]);
   return { user, orders: list, addresses: addrs };
+}
+
+/**
+ * Deletes a customer account: their logins, saved addresses and sessions go
+ * with it. Their orders are kept (for sales records) without the account link.
+ * Team members and the store owner must be removed from the team first.
+ */
+export async function deleteCustomer(userId: string) {
+  const db = getDb();
+  const [user] = await db.select().from(schema.users).where(eq(schema.users.id, userId)).limit(1);
+  if (!user) throw new HttpError(404, "Customer not found.");
+  if (isOwnerEmail(user.email)) throw new HttpError(400, "The store owner’s account can’t be deleted.");
+  if (user.email) {
+    const [member] = await db
+      .select({ id: schema.staffMembers.id })
+      .from(schema.staffMembers)
+      .where(eq(schema.staffMembers.email, user.email.toLowerCase()))
+      .limit(1);
+    if (member) throw new HttpError(400, "This person is on the team. Remove them on Team & access first.");
+  }
+  await db.delete(schema.users).where(eq(schema.users.id, userId));
+  return user;
 }
