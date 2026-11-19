@@ -332,7 +332,10 @@ export const approvalRequests = pgTable("approval_requests", {
   type: text("type").$type<"refund" | "delete_product">().notNull(),
   targetId: text("target_id").notNull(),
   reason: text("reason").notNull().default(""),
-  status: text("status").$type<"pending" | "processing" | "approved" | "rejected">().notNull().default("pending"),
+  status: text("status")
+    .$type<"pending" | "processing" | "approved" | "rejected">()
+    .notNull()
+    .default("pending"),
   requestedBy: text("requested_by").notNull(),
   decidedBy: text("decided_by"),
   decisionNote: text("decision_note").notNull().default(""),
