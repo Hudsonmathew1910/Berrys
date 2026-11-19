@@ -55,6 +55,8 @@ Note: Windows/system environment variables override `.env`. If login sends an ol
 
 ### Mobile OTP setup (Firebase Phone Authentication)
 
+**Currently switched off** (`PHONE_LOGIN_ENABLED=false`): customers log in with Google, and checkout asks for a mobile number in a normal field. After the steps below, set `PHONE_LOGIN_ENABLED=true` to turn on mobile login and require a verified mobile to buy.
+
 Firebase sends a real SMS code; no DLT registration or business documents are needed.
 
 1. [Firebase console](https://console.firebase.google.com/) → **Add project** (you can pick the existing Google Cloud project).

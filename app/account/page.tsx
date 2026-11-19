@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, LogOut, ShoppingBag } from "lucide-react";
 import { getViewer } from "@/lib/auth";
+import { firebaseConfig } from "@/lib/firebase-verify";
 import { money } from "@/lib/catalog";
 import { formatIndianMobile } from "@/lib/phone";
 import { ordersForUser } from "@/lib/store-data";
@@ -15,6 +16,7 @@ export default async function AccountPage() {
   const viewer = await getViewer();
   if (!viewer) redirect("/login?next=/account");
   const orders = await ordersForUser(viewer.userId);
+  const phoneLogin = !!firebaseConfig();
 
   return (
     <main className="auth-page account-page">
@@ -40,17 +42,21 @@ export default async function AccountPage() {
               </Link>
             )}
           </div>
-          <div>
-            <span>Mobile</span>{" "}
-            {viewer.phone ? (
-              formatIndianMobile(viewer.phone)
-            ) : (
-              <Link className="text-link" href="/login?link=1&next=/account">
-                Verify mobile number
-              </Link>
-            )}
-          </div>
-          {!viewer.complete && <small className="muted">Both are needed to place an order.</small>}
+          {(phoneLogin || viewer.phone) && (
+            <div>
+              <span>Mobile</span>{" "}
+              {viewer.phone ? (
+                formatIndianMobile(viewer.phone)
+              ) : (
+                <Link className="text-link" href="/login?link=1&next=/account">
+                  Verify mobile number
+                </Link>
+              )}
+            </div>
+          )}
+          {phoneLogin && !viewer.complete && (
+            <small className="muted">Both are needed to place an order.</small>
+          )}
         </div>
 
         {!orders.length ? (

@@ -20,10 +20,19 @@ export type StoreState = {
   preview: boolean;
   viewer: { email: string | null; phone: string | null; name: string; complete: boolean } | null;
   admin: boolean;
+  /** Mobile OTP login is enabled (Firebase configured). */
+  phoneLogin: boolean;
   needsSetup: boolean;
 };
 
-const initial: StoreState = { products: [], preview: false, viewer: null, admin: false, needsSetup: false };
+const initial: StoreState = {
+  products: [],
+  preview: false,
+  viewer: null,
+  admin: false,
+  phoneLogin: false,
+  needsSetup: false,
+};
 
 /** Loads the catalogue and the visitor's role from /api/store. */
 export function useStoreData() {

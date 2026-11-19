@@ -136,6 +136,7 @@ function StorefrontInner() {
           products={store.products}
           preview={store.preview}
           viewer={store.viewer}
+          phoneLogin={store.phoneLogin}
           onClose={() => setBagOpen(false)}
           onBrowse={() => {
             setBagOpen(false);

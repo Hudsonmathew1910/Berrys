@@ -38,12 +38,23 @@ type Props = {
   preview: boolean;
   /** Logged-in visitor; buying needs both a Google email and a verified mobile. */
   viewer: { email: string | null; phone: string | null } | null;
+  /** Mobile OTP enabled: a verified mobile is required before buying. */
+  phoneLogin: boolean;
   onClose: () => void;
   onBrowse: () => void;
   onStockChanged: () => Promise<void>;
 };
 
-export function BagDrawer({ bag, products, preview, viewer, onClose, onBrowse, onStockChanged }: Props) {
+export function BagDrawer({
+  bag,
+  products,
+  preview,
+  viewer,
+  phoneLogin,
+  onClose,
+  onBrowse,
+  onStockChanged,
+}: Props) {
   const toast = useToast();
   const [step, setStep] = useState<Step>("bag");
   const [busy, setBusy] = useState(false);
@@ -74,6 +85,7 @@ export function BagDrawer({ bag, products, preview, viewer, onClose, onBrowse, o
         json: {
           items: bag,
           customer: f.get("name"),
+          phone: f.get("phone") ?? undefined,
           address: f.get("address"),
           pincode: f.get("pincode"),
         },
@@ -214,11 +226,27 @@ export function BagDrawer({ bag, products, preview, viewer, onClose, onBrowse, o
               <div>
                 <span>Email</span> {viewer?.email}
               </div>
-              <div>
-                <span>Mobile</span> {viewer?.phone && formatIndianMobile(viewer.phone)}
-              </div>
-              <small>Order updates go to your verified email and mobile.</small>
+              {viewer?.phone && (
+                <div>
+                  <span>Mobile</span> {formatIndianMobile(viewer.phone)}
+                </div>
+              )}
+              <small>Order updates go to this email{viewer?.phone ? " and mobile" : ""}.</small>
             </div>
+            {!viewer?.phone && (
+              <label>
+                Mobile number (for delivery)
+                <input
+                  name="phone"
+                  required
+                  type="tel"
+                  inputMode="numeric"
+                  autoComplete="tel-national"
+                  pattern="(\+91|0)?[6-9][0-9]{9}"
+                  placeholder="10-digit mobile number"
+                />
+              </label>
+            )}
             <label>
               Delivery address
               <textarea
@@ -340,7 +368,7 @@ export function BagDrawer({ bag, products, preview, viewer, onClose, onBrowse, o
                 <Link className="primary" href={`/login?next=${encodeURIComponent("/?bag=1")}`}>
                   Login to checkout <ArrowRight size={17} />
                 </Link>
-              ) : !viewer.email || !viewer.phone ? (
+              ) : !viewer.email || (phoneLogin && !viewer.phone) ? (
                 <>
                   <small>
                     To buy, please link your {viewer.email ? "mobile number" : "Google account"} too.

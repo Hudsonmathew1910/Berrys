@@ -1,5 +1,6 @@
 import { getViewer, hasAnyAdmin, isAdmin, isOwnerEmail } from "@/lib/auth";
 import { seedProducts } from "@/lib/catalog";
+import { firebaseConfig } from "@/lib/firebase-verify";
 import { handleError, json } from "@/lib/http";
 import { listProducts } from "@/lib/store-data";
 
@@ -20,6 +21,8 @@ export async function GET() {
         ? { email: viewer.email, phone: viewer.phone, name: viewer.name, complete: viewer.complete }
         : null,
       admin,
+      // Mobile OTP is switched on only when Firebase settings are present.
+      phoneLogin: !!firebaseConfig(),
       needsSetup: !seeded && !!viewer && isOwnerEmail(viewer.email),
     });
   } catch (e) {

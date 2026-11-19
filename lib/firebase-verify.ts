@@ -10,7 +10,9 @@ import { normalizeIndianMobile } from "@/lib/phone";
  * public keys, so the number can't be faked.
  */
 
+/** Mobile OTP login is on only when PHONE_LOGIN_ENABLED=true and Firebase is configured. */
 export function firebaseConfig() {
+  if (process.env.PHONE_LOGIN_ENABLED !== "true") return null;
   const apiKey = process.env.FIREBASE_API_KEY;
   const projectId = process.env.FIREBASE_PROJECT_ID;
   if (!apiKey || !projectId) return null;
