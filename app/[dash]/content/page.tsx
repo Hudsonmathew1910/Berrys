@@ -1,18 +1,17 @@
 import Link from "next/link";
 import { ArrowUpRight } from "lucide-react";
+import { getCategories } from "@/lib/categories";
 import { contentDefaults, getContent, getHelpPage } from "@/lib/content";
+import { listAdminProducts } from "@/lib/admin/catalog";
 import { helpPages } from "@/lib/help-pages";
 import { requirePage } from "@/lib/staff";
 import { ActionForm } from "@/components/dashboard/action-form";
+import { BannerEditor } from "@/components/dashboard/banner-editor";
 import { resetContentAction, saveContentAction } from "../actions";
 
 const labels: Record<string, string> = {
   shelfTitle: "Home heading",
   shelfSubtitle: "Home sub-heading",
-  bannerEyebrow: "Main banner — small label",
-  bannerTitle: "Main banner — title",
-  bannerTitleEm: "Main banner — title (second line)",
-  bannerText: "Main banner — text",
   newInTitle: "“New in” section title",
   storyEyebrow: "Story — small label",
   storyTitle: "Story — title",
@@ -34,11 +33,14 @@ function Reset({ k }: { k: string }) {
 
 export default async function ContentPage() {
   await requirePage("content");
-  const [announcement, home, footer, help] = await Promise.all([
+  const [announcement, home, footer, help, banners, cats, products] = await Promise.all([
     getContent("announcement"),
     getContent("home"),
     getContent("footer"),
     Promise.all(Object.keys(helpPages).map(async (slug) => [slug, await getHelpPage(slug)] as const)),
+    getContent("banners"),
+    getCategories(),
+    listAdminProducts({ status: "active", page: 1, perPage: 500 }),
   ]);
   const blocks = [
     ["home", "Home page", home],
@@ -57,6 +59,25 @@ export default async function ContentPage() {
         </Link>
       </div>
       <div className="dash-grid">
+        <section className="dash-panel wide">
+          <h2>Home page banners</h2>
+          <p className="muted">
+            Leave a field empty to use the automatic choice. Upload a photo, or pick a product to use its
+            photo.
+          </p>
+          <BannerEditor
+            initial={banners.items}
+            categories={cats.map((c) => c.name)}
+            products={products.rows.map((p) => ({
+              id: p.id,
+              name: p.name,
+              category: p.category,
+              image: p.image,
+            }))}
+          />
+          <Reset k="banners" />
+        </section>
+
         <section className="dash-panel wide">
           <h2>Announcement bar (top of every page)</h2>
           <ActionForm action={saveContentAction}>

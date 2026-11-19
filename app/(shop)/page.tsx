@@ -11,12 +11,13 @@ export const dynamic = "force-dynamic";
 const shopHref = (c: string) => (c === "All pieces" ? "/shop" : `/shop?category=${encodeURIComponent(c)}`);
 
 export default async function HomePage() {
-  const [catList, text] = await Promise.all([getCategories(), getContent("home")]);
+  const [catList, text, bannerText] = await Promise.all([
+    getCategories(),
+    getContent("home"),
+    getContent("banners"),
+  ]);
   const cats = catList.map((c) => c.name);
   const categories = ["All pieces", ...cats];
-  // Featured banners: the first three categories in dashboard order.
-  const [mainCat, ...smallCats] = cats.slice(0, 3);
-  const describe = (name: string) => catList.find((c) => c.name === name)?.description;
   const [newIn, counts, ...firsts] = await Promise.all([
     queryProducts({ sort: "new", perPage: 8 }),
     categoryCounts(),
@@ -24,6 +25,28 @@ export default async function HomePage() {
   ]);
   const first = Object.fromEntries(cats.map((c, i) => [c, firsts[i].products[0]]));
   const total = Object.values(counts).reduce((a, n) => a + n, 0);
+
+  // Featured banners (Dashboard → Website content). Blank category = the
+  // category in that position; photo = uploaded image, else chosen product, else first product.
+  const chosenIds = bannerText.items.map((b) => b.productId).filter(Boolean);
+  const chosen = chosenIds.length ? (await queryProducts({ ids: chosenIds, perPage: 3 })).products : [];
+  const banners = bannerText.items.slice(0, 3).map((b, i) => {
+    const product = chosen.find((p) => p.id === b.productId);
+    const category = cats.includes(b.category) ? b.category : (product?.category ?? cats[i]);
+    if (!category) return null;
+    const image = b.image || product?.image || first[category]?.image;
+    if (!image) return null;
+    return {
+      ...b,
+      eyebrow: b.eyebrow || category.toUpperCase(),
+      title: b.title || catList.find((c) => c.name === category)?.description || category,
+      cta: b.cta || `Shop ${category.toLowerCase()}`,
+      href: shopHref(category),
+      from: first[category]?.price,
+      image,
+      alt: product?.name ?? category,
+    };
+  });
 
   return (
     <>
@@ -54,43 +77,43 @@ export default async function HomePage() {
         </section>
 
         <section className="shopping-highlights" aria-label="Featured collections">
-          {mainCat && first[mainCat] && (
-            <Link className="shopping-banner main-shopping-banner" href={shopHref(mainCat)}>
-              <div className="banner-copy">
-                <span className="eyebrow">{text.bannerEyebrow}</span>
-                <h2>
-                  {text.bannerTitle}
-                  <br />
-                  <em>{text.bannerTitleEm}</em>
-                </h2>
-                <p>{text.bannerText}</p>
-                <strong>From {money(first[mainCat].price)}</strong>
-                <span className="banner-cta">
-                  Shop {mainCat.toLowerCase()} <ArrowRight size={16} />
-                </span>
-              </div>
-              <div className="banner-product">
-                <img src={first[mainCat].image} alt={first[mainCat].name} />
-              </div>
-              <span className="banner-corner">THE BERRY’S EDIT</span>
-            </Link>
-          )}
-          {smallCats.map((c, i) =>
-            first[c] ? (
+          {banners.map((bn, i) =>
+            bn ? (
               <Link
-                key={c}
-                className={"shopping-banner small-shopping-banner banner-tone-" + i}
-                href={shopHref(c)}
+                key={i}
+                className={
+                  "shopping-banner " +
+                  (i === 0 ? "main-shopping-banner" : "small-shopping-banner banner-tone-" + (i - 1))
+                }
+                href={bn.href}
               >
                 <div className="banner-copy">
-                  <span className="eyebrow">{c.toUpperCase()}</span>
-                  <h2>{describe(c) || (i ? "Dream a little." : "Dress up the day.")}</h2>
-                  <strong>From {money(first[c].price)}</strong>
+                  {bn.eyebrow && <span className="eyebrow">{bn.eyebrow}</span>}
+                  <h2>
+                    {bn.title}
+                    {bn.titleEm && (
+                      <>
+                        <br />
+                        <em>{bn.titleEm}</em>
+                      </>
+                    )}
+                  </h2>
+                  {bn.text && <p>{bn.text}</p>}
+                  {bn.from && <strong>From {money(bn.from)}</strong>}
                   <span className="banner-cta">
-                    Shop {c.toLowerCase()} <ArrowRight size={14} />
+                    {bn.cta} <ArrowRight size={i === 0 ? 16 : 14} />
                   </span>
                 </div>
-                <img src={first[c].image} alt={first[c].name} />
+                {i === 0 ? (
+                  <>
+                    <div className="banner-product">
+                      <img src={bn.image} alt={bn.alt} />
+                    </div>
+                    <span className="banner-corner">THE BERRY’S EDIT</span>
+                  </>
+                ) : (
+                  <img src={bn.image} alt={bn.alt} />
+                )}
               </Link>
             ) : null,
           )}

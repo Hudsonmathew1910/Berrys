@@ -716,7 +716,7 @@ button:hover {
 .story-copy .text-link {
   margin-top: 5px;
 }
-footer {
+footer.site-footer {
   background: var(--navy);
   color: #eee9dc;
   padding: 49px 5% 0;
@@ -1920,11 +1920,11 @@ td {
   font-size: 12px;
   line-height: 1.9;
 }
-.danger {
+.primary.danger {
   background: #9a5647;
   border-color: #9a5647;
 }
-.danger:hover {
+.primary.danger:hover {
   background: #7b4336;
 }
 .form-error {

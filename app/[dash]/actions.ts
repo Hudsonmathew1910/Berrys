@@ -8,7 +8,15 @@ import { orderStatuses, permissionKeys, type Permission } from "@/db/schema";
 import * as cat from "@/lib/admin/catalog";
 import * as ord from "@/lib/admin/orders";
 import * as team from "@/lib/admin/team";
-import { contentDefaults, helpDefault, resetContent, saveContent, type ContentKey } from "@/lib/content";
+import { getCategories } from "@/lib/categories";
+import {
+  bannerFields,
+  contentDefaults,
+  helpDefault,
+  resetContent,
+  saveContent,
+  type ContentKey,
+} from "@/lib/content";
 import { HttpError } from "@/lib/http-error";
 import { rateLimit } from "@/lib/rate-limit";
 import {
@@ -25,7 +33,7 @@ import {
   verifyPassword,
   type Staff,
 } from "@/lib/staff";
-import { productSchema } from "@/lib/validation";
+import { isAllowedImageUrl, productSchema } from "@/lib/validation";
 
 export type ActionResult = { ok?: string; error?: string; at?: number };
 
@@ -313,7 +321,21 @@ export async function saveContentAction(_: ActionResult, f: FormData) {
   return run("content", async (staff) => {
     const key = str(f, "key");
     let value: Record<string, unknown>;
-    if (key === "announcement") {
+    if (key === "banners") {
+      const cats = (await getCategories(false)).map((c) => c.name);
+      const items = [];
+      for (const i of [0, 1, 2]) {
+        const b = Object.fromEntries(bannerFields.map((k) => [k, str(f, `b${i}_${k}`).slice(0, 300)]));
+        if (b.category && !cats.includes(b.category))
+          return { error: `Banner ${i + 1}: choose a valid category.` };
+        if (b.image && !isAllowedImageUrl(b.image)) return { error: `Banner ${i + 1}: invalid image.` };
+        if (b.productId && !(await cat.getAdminProduct(b.productId))) {
+          return { error: `Banner ${i + 1}: that product no longer exists.` };
+        }
+        items.push(b);
+      }
+      value = { items };
+    } else if (key === "announcement") {
       value = { items: [0, 1, 2].map((i) => str(f, `item${i}`).slice(0, 120)) };
     } else if (key in contentDefaults) {
       const fields = Object.keys(contentDefaults[key as ContentKey]);

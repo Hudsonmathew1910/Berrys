@@ -19,16 +19,51 @@ export const contentDefaults = {
   home: {
     shelfTitle: "Find their next favourite.",
     shelfSubtitle: "Little outfits. Plenty of choice.",
-    bannerEyebrow: "THE EVERYDAY WARDROBE",
-    bannerTitle: "Big on comfort.",
-    bannerTitleEm: "Little on fuss.",
-    bannerText: "Ready-to-play co-ord sets",
     newInTitle: "New little favourites",
     storyEyebrow: "THE HEART OF BERRY’S",
     storyTitle: "Childhood is fleeting.",
     storyTitleEm: "Let them live in it.",
     storyText:
       "Clothes for cartwheels. For collecting pebbles. For the days that turn into the stories you tell. Berry’s is a little celebration of it all.",
+  },
+  /**
+   * The three home page banners (first = large). Empty category = the
+   * category in that position; empty image = the chosen product photo,
+   * or the first product of the category.
+   */
+  banners: {
+    items: [
+      {
+        eyebrow: "THE EVERYDAY WARDROBE",
+        title: "Big on comfort.",
+        titleEm: "Little on fuss.",
+        text: "Ready-to-play co-ord sets",
+        cta: "",
+        category: "",
+        productId: "",
+        image: "",
+      },
+      {
+        eyebrow: "",
+        title: "Dress up the day.",
+        titleEm: "",
+        text: "",
+        cta: "",
+        category: "",
+        productId: "",
+        image: "",
+      },
+      {
+        eyebrow: "",
+        title: "Dream a little.",
+        titleEm: "",
+        text: "",
+        cta: "",
+        category: "",
+        productId: "",
+        image: "",
+      },
+    ],
   },
   footer: {
     tagline: "Little clothes. Lasting memories.",
@@ -37,6 +72,17 @@ export const contentDefaults = {
   },
 };
 export type ContentKey = keyof typeof contentDefaults;
+export type Banner = (typeof contentDefaults)["banners"]["items"][number];
+export const bannerFields = [
+  "eyebrow",
+  "title",
+  "titleEm",
+  "text",
+  "cta",
+  "category",
+  "productId",
+  "image",
+] as const;
 export type Content<K extends ContentKey> = (typeof contentDefaults)[K];
 
 const loadAll = cache(async () => {

@@ -11,7 +11,14 @@ const likeTerm = (q: string) => `%${q.replace(/[\\%_]/g, (c) => "\\" + c)}%`;
 
 // ---------------------------------------------------------------- products
 
-export async function listAdminProducts(f: { q?: string; category?: string; status?: string; page: number }) {
+export async function listAdminProducts(f: {
+  q?: string;
+  category?: string;
+  status?: string;
+  page: number;
+  perPage?: number;
+}) {
+  const size = Math.min(Math.max(f.perPage ?? PAGE_SIZE, 1), 500);
   const where: SQL[] = [];
   if (f.q) {
     const t = likeTerm(f.q);
@@ -41,14 +48,14 @@ export async function listAdminProducts(f: { q?: string; category?: string; stat
       .from(products)
       .where(and(...where))
       .orderBy(desc(products.updatedAt))
-      .limit(PAGE_SIZE)
-      .offset((f.page - 1) * PAGE_SIZE),
+      .limit(size)
+      .offset((f.page - 1) * size),
   ]);
   const hydrated = await hydrateProducts(rows);
   return {
     rows: hydrated.map((p) => ({ ...p, active: rows.find((r) => r.id === p.id)!.active })),
     total,
-    pages: Math.max(1, Math.ceil(total / PAGE_SIZE)),
+    pages: Math.max(1, Math.ceil(total / size)),
   };
 }
 
