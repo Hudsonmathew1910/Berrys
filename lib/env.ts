@@ -14,7 +14,13 @@ function required(name: string, value: string | undefined): string {
 export const serverEnv = {
   /** Public base URL of the site, e.g. https://berrys.in (no trailing slash). */
   siteUrl: () =>
-    (process.env.SITE_URL || process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000").replace(/\/$/, ""),
+    (
+      process.env.SITE_URL ||
+      // Vercel sets this automatically to the project's production domain.
+      (process.env.VERCEL_PROJECT_PRODUCTION_URL && `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`) ||
+      process.env.NEXT_PUBLIC_SITE_URL ||
+      "http://localhost:3000"
+    ).replace(/\/$/, ""),
 
   supabaseUrl: () => required("NEXT_PUBLIC_SUPABASE_URL", process.env.NEXT_PUBLIC_SUPABASE_URL),
   supabaseServiceRoleKey: () => required("SUPABASE_SERVICE_ROLE_KEY", process.env.SUPABASE_SERVICE_ROLE_KEY),

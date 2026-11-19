@@ -13,6 +13,13 @@ export async function GET(request: Request) {
   const next = safeNext(url.searchParams.get("next"));
   const site = serverEnv.siteUrl();
 
+  // Google returns visitors to SITE_URL, so the login must start there too,
+  // or the security cookie set here won't be readable on return
+  // (e.g. visiting 127.0.0.1 when SITE_URL is localhost). One hop only.
+  if (url.origin !== new URL(site).origin && !url.searchParams.has("canonical")) {
+    return NextResponse.redirect(`${site}/auth/google?next=${encodeURIComponent(next)}&canonical=1`);
+  }
+
   if (!serverEnv.googleConfigured()) {
     return NextResponse.redirect(`${site}/login?error=google_not_configured`);
   }
