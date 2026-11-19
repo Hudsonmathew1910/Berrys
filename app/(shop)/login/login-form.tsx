@@ -22,11 +22,11 @@ export function LoginForm({ next, error, googleEnabled, firebase, viewer }: Prop
   };
 
   return (
-    <main className="auth-page">
+    <div className="auth-page">
       <div className="admin-welcome">
-        <Link href="/" className="auth-logo">
-          <img src="/images/berrys-logo.png" alt="Berry’s" />
-        </Link>
+        <span className="auth-mark">
+          <img src="/images/berrys-mark.webp" alt="" />
+        </span>
 
         {!viewer ? (
           <>
@@ -92,7 +92,7 @@ export function LoginForm({ next, error, googleEnabled, firebase, viewer }: Prop
           Back to the storefront
         </Link>
       </div>
-    </main>
+    </div>
   );
 }
 

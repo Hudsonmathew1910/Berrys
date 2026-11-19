@@ -70,3 +70,64 @@ export const productSchema = z
   })
   .refine((p) => p.originalPrice >= p.price, "Original price must be at least the selling price.");
 export type ProductInput = z.infer<typeof productSchema>;
+
+export const indianStates = [
+  "Andaman and Nicobar Islands",
+  "Andhra Pradesh",
+  "Arunachal Pradesh",
+  "Assam",
+  "Bihar",
+  "Chandigarh",
+  "Chhattisgarh",
+  "Dadra and Nagar Haveli and Daman and Diu",
+  "Delhi",
+  "Goa",
+  "Gujarat",
+  "Haryana",
+  "Himachal Pradesh",
+  "Jammu and Kashmir",
+  "Jharkhand",
+  "Karnataka",
+  "Kerala",
+  "Ladakh",
+  "Lakshadweep",
+  "Madhya Pradesh",
+  "Maharashtra",
+  "Manipur",
+  "Meghalaya",
+  "Mizoram",
+  "Nagaland",
+  "Odisha",
+  "Puducherry",
+  "Punjab",
+  "Rajasthan",
+  "Sikkim",
+  "Tamil Nadu",
+  "Telangana",
+  "Tripura",
+  "Uttar Pradesh",
+  "Uttarakhand",
+  "West Bengal",
+] as const;
+
+const mobile = z
+  .string()
+  .trim()
+  .transform((s) => s.replace(/[\s-]/g, "").replace(/^(\+91|0)/, ""))
+  .pipe(z.string().regex(/^[6-9]\d{9}$/, "Please enter a valid 10-digit mobile number."));
+
+/** A delivery address (saved to the account, or typed at checkout). */
+export const addressSchema = z.object({
+  name: z.string().trim().min(2, "Please enter the recipient’s name.").max(100),
+  phone: mobile,
+  line1: z.string().trim().min(5, "Please enter the house / street.").max(200),
+  line2: z.string().trim().max(200).default(""),
+  city: z.string().trim().min(2, "Please enter the city.").max(80),
+  state: z.enum(indianStates, { message: "Please choose a state." }),
+  pincode: z
+    .string()
+    .trim()
+    .regex(/^[1-9]\d{5}$/, "Please enter a valid 6-digit PIN code."),
+  isDefault: z.boolean().default(false),
+});
+export type AddressInput = z.infer<typeof addressSchema>;

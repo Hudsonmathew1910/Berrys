@@ -84,20 +84,21 @@ Paid orders move through _Packed → Shipped → Delivered_ from the admin **Ord
 ## Project layout
 
 ```
-app/
-  page.tsx, admin/, login/, account/   pages
-  api/store                            public catalogue + who is signed in
-  api/checkout{,/verify,/cancel}       payment flow (+ /mock-pay, dev only)
-  api/webhooks/razorpay                Razorpay webhook
-  api/admin/*                          admin-only: setup, products, upload, orders, overview
-  auth/google{,/callback}, auth/signout  Google login + logout
-  api/auth/phone                       mobile login / linking (Firebase-verified)
-components/store/                      storefront UI (header, grid, product modal, bag/checkout…)
-components/admin/                      admin workspace UI
-components/ui/                         shadcn/ui kit (vendored)
-lib/                                   server logic: orders, store-data, auth, users, session, google, firebase-verify, razorpay, email, validation
-db/schema.ts                           database schema (Drizzle)
-drizzle/                               SQL migrations
+app/(shop)/layout.tsx                 base template: header, category nav, footer (every customer page)
+app/(shop)/page.tsx                   home
+app/(shop)/shop                       catalogue: category, search, size/stock filters, sort, pagination (12/page)
+app/(shop)/products/[id]              product detail + add to bag + related
+app/(shop)/cart, checkout{,/success}  bag, checkout (saved/new address, Razorpay), confirmation
+app/(shop)/account/*                  details, orders, order details (shipping timeline), favourites, addresses
+app/(shop)/login, help/[slug]         login; size guide, shipping & returns, contact, story, privacy, terms
+app/admin                             admin workspace
+app/api/*                             JSON APIs (store, products, checkout, account, admin, webhooks)
+components/shop/                      storefront UI
+components/admin/                     admin UI
+lib/                                  server logic (store-data, orders, addresses, users, session, …)
+lib/help-pages.ts                     help/policy page copy (placeholder — replace before launch)
+app/globals.css, app/shop.css         styles
+public/images/berrys-logo-full.webp   footer logo · berrys-mark.webp header mark
 ```
 
 ## Scripts

@@ -123,6 +123,13 @@ export const orders = pgTable(
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
     paidAt: timestamp("paid_at", { withTimezone: true }),
     confirmationSentAt: timestamp("confirmation_sent_at", { withTimezone: true }),
+    /** Shipping progress, shown to the customer on the order details page. */
+    packedAt: timestamp("packed_at", { withTimezone: true }),
+    shippedAt: timestamp("shipped_at", { withTimezone: true }),
+    deliveredAt: timestamp("delivered_at", { withTimezone: true }),
+    courier: text("courier").notNull().default(""),
+    trackingNumber: text("tracking_number").notNull().default(""),
+    trackingUrl: text("tracking_url").notNull().default(""),
   },
   (t) => [
     index("orders_status_idx").on(t.status),
@@ -164,3 +171,24 @@ export const rateLimits = pgTable("rate_limits", {
   windowStart: timestamp("window_start", { withTimezone: true }).notNull().defaultNow(),
   count: integer("count").notNull().default(0),
 }).enableRLS();
+
+/** Saved delivery addresses for an account. */
+export const addresses = pgTable(
+  "addresses",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    phone: text("phone").notNull(),
+    line1: text("line1").notNull(),
+    line2: text("line2").notNull().default(""),
+    city: text("city").notNull(),
+    state: text("state").notNull(),
+    pincode: text("pincode").notNull(),
+    isDefault: boolean("is_default").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("addresses_user_idx").on(t.userId)],
+).enableRLS();

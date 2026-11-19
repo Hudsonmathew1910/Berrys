@@ -121,7 +121,7 @@ function AdminInner() {
     <div className="admin-shell">
       <aside className="admin-sidebar">
         <Link href="/" className="admin-logo">
-          <img src="/images/berrys-logo.png" alt="Berry’s" />
+          <img src="/images/berrys-logo-full.webp" alt="Berry’s" />
         </Link>
         <div className="admin-label">STORE WORKSPACE</div>
         {tabs.map(([id, label, Icon]) => (

@@ -36,6 +36,13 @@
       "when": 1795075232693,
       "tag": "0004_drop_otp_codes",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1795077508402,
+      "tag": "0005_addresses_shipping",
+      "breakpoints": true
     }
   ]
 }
