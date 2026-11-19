@@ -24,8 +24,12 @@ export async function GET(request: Request) {
   }
   const next = safeNext(saved?.next);
   // Only fixed error codes go in the URL; the login page maps them to text.
+  const viewer = await getViewer();
+  // Linking (already logged in) returns to the link screen so the error is shown.
   const fail = (code: string) =>
-    NextResponse.redirect(`${site}/login?next=${encodeURIComponent(next)}&error=${code}`);
+    NextResponse.redirect(
+      `${site}/login?next=${encodeURIComponent(next)}&error=${code}${viewer ? "&link=1" : ""}`,
+    );
 
   // Visitor cancelled on Google's screen.
   if (url.searchParams.get("error")) return fail("google_cancelled");
@@ -36,7 +40,6 @@ export async function GET(request: Request) {
 
   try {
     const profile = await finishGoogleLogin(code, saved.verifier, saved.nonce);
-    const viewer = await getViewer();
     if (viewer) {
       // Logged in already (e.g. with mobile): link Google to this same account.
       await linkGoogle(viewer.userId, profile);
@@ -44,8 +47,8 @@ export async function GET(request: Request) {
       const user = await loginWithGoogle(profile);
       await createSession(user.id);
     }
-    // The login page sends complete accounts on to `next`, or asks for the missing link.
-    return NextResponse.redirect(`${site}/login?next=${encodeURIComponent(next)}`);
+    // Logged in (or Google linked): continue to where the visitor was going.
+    return NextResponse.redirect(`${site}${next}`);
   } catch (e) {
     if (e instanceof HttpError) return fail(e.status === 409 ? "link_conflict" : "google_unverified");
     console.error("Google login failed", e);

@@ -13,6 +13,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
+import { formatIndianMobile } from "@/lib/phone";
 import { money, shippingFor, type BagLine, type Product } from "@/lib/catalog";
 import { api } from "./api";
 import { bagStore, bagTotals } from "./bag";
@@ -35,23 +36,14 @@ type Props = {
   bag: BagLine[];
   products: Product[];
   preview: boolean;
-  viewerEmail?: string;
-  viewerPhone?: string;
+  /** Logged-in visitor; buying needs both a Google email and a verified mobile. */
+  viewer: { email: string | null; phone: string | null } | null;
   onClose: () => void;
   onBrowse: () => void;
   onStockChanged: () => Promise<void>;
 };
 
-export function BagDrawer({
-  bag,
-  products,
-  preview,
-  viewerEmail,
-  viewerPhone,
-  onClose,
-  onBrowse,
-  onStockChanged,
-}: Props) {
+export function BagDrawer({ bag, products, preview, viewer, onClose, onBrowse, onStockChanged }: Props) {
   const toast = useToast();
   const [step, setStep] = useState<Step>("bag");
   const [busy, setBusy] = useState(false);
@@ -82,8 +74,6 @@ export function BagDrawer({
         json: {
           items: bag,
           customer: f.get("name"),
-          email: f.get("email"),
-          phone: f.get("phone"),
           address: f.get("address"),
           pincode: f.get("pincode"),
         },
@@ -201,7 +191,7 @@ export function BagDrawer({
                 shortly.
               </p>
             )}
-            {viewerEmail && (
+            {viewer && (
               <small>
                 You can track it any time in <Link href="/account">My orders</Link>.
               </small>
@@ -220,23 +210,15 @@ export function BagDrawer({
               Your name
               <input name="name" required minLength={2} maxLength={100} autoComplete="name" />
             </label>
-            <label>
-              Email address
-              <input name="email" required type="email" autoComplete="email" defaultValue={viewerEmail} />
-            </label>
-            <label>
-              Mobile number
-              <input
-                name="phone"
-                required
-                type="tel"
-                inputMode="numeric"
-                autoComplete="tel-national"
-                pattern="(\+91|0)?[6-9][0-9]{9}"
-                placeholder="10-digit mobile number"
-                defaultValue={viewerPhone}
-              />
-            </label>
+            <div className="verified-contact">
+              <div>
+                <span>Email</span> {viewer?.email}
+              </div>
+              <div>
+                <span>Mobile</span> {viewer?.phone && formatIndianMobile(viewer.phone)}
+              </div>
+              <small>Order updates go to your verified email and mobile.</small>
+            </div>
             <label>
               Delivery address
               <textarea
@@ -350,9 +332,28 @@ export function BagDrawer({
                     ? `Shipping ${money(shipping)} added at checkout.`
                     : "Free shipping on this order."}
               </p>
-              <button className="primary" disabled={preview || outOfStock} onClick={() => setStep("details")}>
-                Continue to checkout <ArrowRight size={17} />
-              </button>
+              {preview ? (
+                <button className="primary" disabled>
+                  Continue to checkout <ArrowRight size={17} />
+                </button>
+              ) : !viewer ? (
+                <Link className="primary" href={`/login?next=${encodeURIComponent("/?bag=1")}`}>
+                  Login to checkout <ArrowRight size={17} />
+                </Link>
+              ) : !viewer.email || !viewer.phone ? (
+                <>
+                  <small>
+                    To buy, please link your {viewer.email ? "mobile number" : "Google account"} too.
+                  </small>
+                  <Link className="primary" href={`/login?link=1&next=${encodeURIComponent("/?bag=1")}`}>
+                    {viewer.email ? "Verify mobile number" : "Link Google account"} <ArrowRight size={17} />
+                  </Link>
+                </>
+              ) : (
+                <button className="primary" disabled={outOfStock} onClick={() => setStep("details")}>
+                  Continue to checkout <ArrowRight size={17} />
+                </button>
+              )}
               <button className="text-link" onClick={onClose}>
                 A little more browsing
               </button>

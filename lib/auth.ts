@@ -52,11 +52,10 @@ export function isOwnerEmail(email: string | null | undefined) {
   return !!email && owner.length > 0 && owner === email.toLowerCase();
 }
 
-/** Throws a 401/403 HttpError unless the visitor is a store admin with a fully linked account. */
+/** Throws a 401/403 HttpError unless the visitor is a store admin. */
 export async function requireAdmin() {
   const viewer = await getViewer();
   if (!viewer) throw new HttpError(401, "Please log in first.");
-  if (!viewer.complete) throw new HttpError(403, "Link your Google account and mobile number first.");
   if (!(await isAdmin(viewer))) throw new HttpError(403, "Admin access is required.");
   return viewer;
 }

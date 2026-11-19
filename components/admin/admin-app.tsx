@@ -178,11 +178,17 @@ function AdminInner() {
               and discover what your customers love.
             </p>
             {store.error && <p className="form-error">{store.error}</p>}
-            {!store.viewer?.complete ? (
+            {!store.viewer ? (
               <Link className="primary" href="/login?next=/admin">
-                {store.viewer ? "Finish linking your account" : "Login to store admin"}{" "}
-                <ArrowRight size={17} />
+                Login to store admin <ArrowRight size={17} />
               </Link>
+            ) : !store.viewer.email ? (
+              <>
+                <p className="form-error">The store owner logs in with Google.</p>
+                <Link className="primary" href="/login?link=1&next=/admin">
+                  Link your Google account <ArrowRight size={17} />
+                </Link>
+              </>
             ) : store.needsSetup ? (
               <>
                 <button className="primary" onClick={setup} disabled={busy}>

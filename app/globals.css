@@ -4052,3 +4052,28 @@ a.google-btn {
   display: inline-block;
   min-width: 70px;
 }
+
+/* Checkout: verified contact details */
+.verified-contact {
+  display: grid;
+  gap: 6px;
+  padding: 12px 14px;
+  background: #f3f1ea;
+  font-size: 13px;
+}
+.verified-contact span {
+  display: inline-block;
+  min-width: 60px;
+  color: var(--muted);
+}
+.verified-contact small {
+  color: var(--muted);
+}
+.bag-summary > small {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--muted);
+}
+a.primary {
+  text-decoration: none;
+}

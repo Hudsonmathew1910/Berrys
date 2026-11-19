@@ -2,9 +2,9 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { getViewer } from "@/lib/auth";
 import { serverEnv } from "@/lib/env";
+import { firebaseConfig } from "@/lib/firebase-verify";
 import { formatIndianMobile } from "@/lib/phone";
 import { safeNext } from "@/lib/safe-next";
-import { isDevOtp, smsProviderName } from "@/lib/sms";
 import { LoginForm } from "./login-form";
 
 export const metadata: Metadata = { title: "Login — Berry’s", robots: { index: false } };
@@ -22,34 +22,29 @@ const errors: Record<string, string> = {
 };
 
 /**
- * One page for logging in and signing up. Every account links a Google
- * account AND a verified mobile number; after the first method, the page asks
- * for the other one before sending the visitor on to `next`.
+ * /login            — log in or sign up with Google OR a mobile number (either one).
+ * /login?link=1     — logged-in visitor adds the missing method (needed before buying).
  */
 export default async function LoginPage({
   searchParams,
 }: {
-  searchParams: Promise<{ next?: string; error?: string }>;
+  searchParams: Promise<{ next?: string; error?: string; link?: string }>;
 }) {
-  const { next: rawNext, error } = await searchParams;
+  const { next: rawNext, error, link } = await searchParams;
   const next = safeNext(rawNext);
   const viewer = await getViewer();
-  if (viewer?.complete) redirect(next);
+  const linking = link === "1" && !!viewer;
+  if (viewer && (!linking || viewer.complete)) redirect(next);
 
   return (
     <LoginForm
       next={next}
       error={error ? (errors[error] ?? "Something went wrong. Please try again.") : ""}
       googleEnabled={serverEnv.googleConfigured()}
-      smsEnabled={!!smsProviderName()}
-      devOtp={isDevOtp()}
+      firebase={firebaseConfig()}
       viewer={
-        viewer
-          ? {
-              email: viewer.email,
-              phone: viewer.phone ? formatIndianMobile(viewer.phone) : null,
-              name: viewer.name,
-            }
+        linking && viewer
+          ? { email: viewer.email, phone: viewer.phone ? formatIndianMobile(viewer.phone) : null }
           : null
       }
     />

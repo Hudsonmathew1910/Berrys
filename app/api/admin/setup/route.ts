@@ -8,9 +8,11 @@ export async function POST(request: Request) {
     assertSameOrigin(request);
     const viewer = await getViewer();
     if (!viewer) throw new HttpError(401, "Please log in first.");
-    if (!viewer.complete) throw new HttpError(403, "Link your Google account and mobile number first.");
     if (!isOwnerEmail(viewer.email)) {
-      throw new HttpError(403, "Only the store owner can set up administrator access.");
+      throw new HttpError(
+        403,
+        "Only the store owner can set up administrator access. Log in with the owner’s Google account.",
+      );
     }
     await setupOwner(viewer);
     return json({ ok: true });

@@ -13,7 +13,7 @@ export const dynamic = "force-dynamic";
 
 export default async function AccountPage() {
   const viewer = await getViewer();
-  if (!viewer?.complete) redirect("/login?next=/account");
+  if (!viewer) redirect("/login?next=/account");
   const orders = await ordersForUser(viewer.userId);
 
   return (
@@ -33,11 +33,24 @@ export default async function AccountPage() {
         <h1>{viewer.name ? `Hello, ${viewer.name.split(" ")[0]}.` : "Your little orders."}</h1>
         <div className="account-identities">
           <div>
-            <span>Google</span> {viewer.email}
+            <span>Google</span>{" "}
+            {viewer.email ?? (
+              <Link className="text-link" href="/login?link=1&next=/account">
+                Link Google account
+              </Link>
+            )}
           </div>
           <div>
-            <span>Mobile</span> {viewer.phone && formatIndianMobile(viewer.phone)}
+            <span>Mobile</span>{" "}
+            {viewer.phone ? (
+              formatIndianMobile(viewer.phone)
+            ) : (
+              <Link className="text-link" href="/login?link=1&next=/account">
+                Verify mobile number
+              </Link>
+            )}
           </div>
+          {!viewer.complete && <small className="muted">Both are needed to place an order.</small>}
         </div>
 
         {!orders.length ? (

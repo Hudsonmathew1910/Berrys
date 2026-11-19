@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { Product } from "@/lib/catalog";
 import { useStoreData } from "./api";
 import { addToBag, bagTotals, useBag, useLikes } from "./bag";
@@ -34,6 +34,16 @@ function StorefrontInner() {
   const [favouritesOnly, setFavouritesOnly] = useState(false);
   const [selected, setSelected] = useState<{ product: Product; size?: string } | null>(null);
   const [bagOpen, setBagOpen] = useState(false);
+
+  // Coming back from login during checkout (/?bag=1): reopen the bag.
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    if (url.searchParams.get("bag") !== "1") return;
+    url.searchParams.delete("bag");
+    window.history.replaceState(null, "", url.pathname + url.search);
+    const t = setTimeout(() => setBagOpen(true), 0);
+    return () => clearTimeout(t);
+  }, []);
   const [info, setInfo] = useState<InfoTopic | null>(null);
 
   function shop(c = "All pieces") {
@@ -70,7 +80,7 @@ function StorefrontInner() {
         favouritesOnly={favouritesOnly}
         likesCount={likes.length}
         bagCount={bagTotals(bag, store.products).count}
-        signedIn={!!store.viewer?.complete}
+        signedIn={!!store.viewer}
         onShop={shop}
         onFavourites={() => {
           shop();
@@ -125,8 +135,7 @@ function StorefrontInner() {
           bag={bag}
           products={store.products}
           preview={store.preview}
-          viewerEmail={store.viewer?.email ?? undefined}
-          viewerPhone={store.viewer?.phone?.replace(/^\+91/, "") ?? undefined}
+          viewer={store.viewer}
           onClose={() => setBagOpen(false)}
           onBrowse={() => {
             setBagOpen(false);

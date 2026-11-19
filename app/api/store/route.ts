@@ -19,8 +19,8 @@ export async function GET() {
       viewer: viewer
         ? { email: viewer.email, phone: viewer.phone, name: viewer.name, complete: viewer.complete }
         : null,
-      admin: admin && !!viewer?.complete,
-      needsSetup: !seeded && !!viewer?.complete && isOwnerEmail(viewer.email),
+      admin,
+      needsSetup: !seeded && !!viewer && isOwnerEmail(viewer.email),
     });
   } catch (e) {
     return handleError(e, "We could not load the store. Please try again.");

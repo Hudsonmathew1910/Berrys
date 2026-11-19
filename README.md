@@ -11,7 +11,7 @@ An online store for Berry’s children’s clothing: a storefront with search, f
 | Auth      | Own accounts: Google login + mobile OTP, linked to one account (`lib/users.ts`) |
 | Images    | Supabase Storage, public `product-images` bucket                                |
 | Payments  | Razorpay Standard Checkout + webhook                                            |
-| SMS OTP   | Pluggable: dev (terminal), Twilio Verify or MSG91 (`lib/sms.ts`)                |
+| SMS OTP   | Firebase Phone Authentication (real SMS, verified on our server)                |
 | Email     | Resend (optional) for order confirmation emails to customers                    |
 | Styling   | Hand-written CSS in `app/globals.css`, Tailwind 4 + shadcn/ui available         |
 
@@ -33,34 +33,38 @@ Until then the storefront shows the sample catalogue as a read-only preview, wit
 
 ## Login
 
-There is one **Login / sign up** page (`/login`). New visitors get an account automatically.
+One **Login / sign up** page (`/login`); new visitors get an account automatically.
 
-- **Continue with Google** or **mobile number + SMS code**, whichever the customer prefers.
-- Every account links **both**: after the first method, the page asks for the other one (link Google, or verify the mobile number). From then on either one logs into the same account.
-- If someone had made two half-accounts (one with Google, one with the number), linking merges them, keeping all orders.
-- A number or Google account that already belongs to a different complete account can’t be linked.
-- Sessions are random tokens in an `httpOnly` cookie (30 days); only a SHA-256 hash is stored in the `sessions` table.
+- Customers log in with **Google** _or_ their **mobile number** (real SMS code). Either one is enough to log in, see orders and save favourites.
+- **To buy, both are required.** At checkout the bag asks the customer to link the missing one (Google account or mobile number); the order then uses the verified email and number.
+- Customers can also link the other method any time from **My account**. If someone had made two separate accounts (one per method), linking merges them, keeping all orders.
+- A number or Google account that already belongs to another account can't be linked.
+- The store owner logs in with the Google account set in `STORE_OWNER_EMAIL`.
+- Sessions are random tokens in an `httpOnly` cookie (30 days); only a SHA-256 hash is stored.
 
 ### Google login setup (free)
 
-1. [Google Cloud Console](https://console.cloud.google.com/) → create a project → **Google Auth Platform / OAuth consent screen**: app name `Berry’s`, support email, audience **External**.
+1. [Google Cloud Console](https://console.cloud.google.com/) → your project → **Google Auth Platform**: app name `Berry's`, audience **External**.
 2. **Clients → Create client** → _Web application_:
-   - Authorized JavaScript origins: `http://localhost:3000` (and the live domain later).
-   - Authorized redirect URIs: `http://localhost:3000/auth/google/callback` (and `https://<domain>/auth/google/callback` later).
-3. Copy the Client ID and Client secret into `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`, set `SITE_URL`, restart `npm run dev`.
-4. While the app is in **Testing**, only the test users you add on the consent screen can log in (up to 100). Click **Publish app** to let anyone log in. The app only asks for basic profile/email, which doesn’t need Google’s verification review.
+   - Authorized JavaScript origins: `http://localhost:3000` and `https://<domain>`.
+   - Authorized redirect URIs: `http://localhost:3000/auth/google/callback` and `https://<domain>/auth/google/callback`.
+3. Put the Client ID and secret in `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`, set `SITE_URL`, restart.
+4. **Audience → Publish app** so anyone can log in (in Testing, only listed test users can).
 
-Google login has no per-login cost.
+Note: Windows/system environment variables override `.env`. If login sends an old client ID, remove old `GOOGLE_CLIENT_*` variables from the system environment.
 
-### Mobile OTP providers
+### Mobile OTP setup (Firebase Phone Authentication)
 
-| `SMS_PROVIDER` | Use            | Notes                                                                                                                                      |
-| -------------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| `dev`          | Local testing  | No SMS sent; the code prints in the `npm run dev` terminal. Free. Refused in production.                                                   |
-| `twilio`       | Launch         | Twilio Verify. Create a Verify service; set `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_VERIFY_SERVICE_SID`. Paid per verification. |
-| `msg91`        | Launch (India) | Cheaper per SMS, but needs DLT registration (business documents) and an approved OTP template; set `MSG91_AUTH_KEY`, `MSG91_TEMPLATE_ID`.  |
+Firebase sends a real SMS code; no DLT registration or business documents are needed.
 
-SMS always costs money in India, and OTP endpoints are a target for “SMS pumping” fraud, so sending is rate-limited per IP and per number (3 per 15 min, 8 per day per number).
+1. [Firebase console](https://console.firebase.google.com/) → **Add project** (you can pick the existing Google Cloud project).
+2. **Build → Authentication → Get started → Sign-in method → Phone → Enable.**
+3. **Authentication → Settings → Authorized domains:** add the live domain (`localhost` is there by default).
+4. **Project settings → General → Your apps → Add app → Web**, then copy `apiKey` and `projectId` into `FIREBASE_API_KEY` / `FIREBASE_PROJECT_ID`.
+5. **Upgrade to the Blaze plan** (a card is needed). Phone sign-in requires it; the first **10 SMS per day are free**, then Google charges per SMS (about $0.07 for India).
+6. To test without spending SMS: **Sign-in method → Phone → Phone numbers for testing** — add a number with a fixed code.
+
+Firebase protects SMS sending with an invisible reCAPTCHA; our server also rate-limits phone logins and checks Firebase's signed proof of the number.
 
 ## How checkout works
 
@@ -85,11 +89,11 @@ app/
   api/webhooks/razorpay                Razorpay webhook
   api/admin/*                          admin-only: setup, products, upload, orders, overview
   auth/google{,/callback}, auth/signout  Google login + logout
-  api/auth/otp/{send,verify}           mobile OTP login / linking
+  api/auth/phone                       mobile login / linking (Firebase-verified)
 components/store/                      storefront UI (header, grid, product modal, bag/checkout…)
 components/admin/                      admin workspace UI
 components/ui/                         shadcn/ui kit (vendored)
-lib/                                   server logic: orders, store-data, auth, users, session, google, sms, razorpay, email, validation
+lib/                                   server logic: orders, store-data, auth, users, session, google, firebase-verify, razorpay, email, validation
 db/schema.ts                           database schema (Drizzle)
 drizzle/                               SQL migrations
 ```
@@ -111,8 +115,7 @@ drizzle/                               SQL migrations
 ## Security notes
 
 - **Security headers:** a strict Content-Security-Policy (scripts, frames and API calls only from this site, Supabase and Razorpay), HSTS, no framing, nosniff, and a locked-down Permissions-Policy (`next.config.ts`).
-- **Rate limits** (Postgres-backed, shared across server instances): checkout 10 per 10 min per IP; payment verify/cancel 30 per 10 min per IP; photo uploads 60 per hour per admin. A shopper can hold at most 2 unpaid checkouts, so stock can’t be locked up by fake orders. Login is limited too: Google starts 30 per 10 min per IP; OTP sends 5 per 15 min per IP and 3 per 15 min per number; OTP checks 6 per 15 min per number, and each code locks after 5 wrong tries.
-- **Uploads** are checked by their actual file bytes (JPEG/PNG/WebP only, 5 MB max), not the file name or claimed type.
+- **Rate limits** (Postgres-backed, shared across server instances): checkout 10 per 10 min per IP; payment verify/cancel 30 per 10 min per IP; photo uploads 60 per hour per admin. A shopper can hold at most 2 unpaid checkouts, so stock can’t be locked up by fake orders. Login is limited too: Google starts 30 per 10 min per IP; phone logins 20 per 15 min per IP, and Firebase applies its own SMS abuse protection.
 - Search engines are told not to index `/admin`, `/account`, `/login` and the API.
 - Every table has Row Level Security on with **no policies**, so the public Supabase API key cannot read or write store data. All access goes through this app’s server routes, which validate input (zod) and check admin rights.
 - Prices and totals are always computed on the server.
@@ -123,7 +126,7 @@ drizzle/                               SQL migrations
 ## Deploying (e.g. Vercel)
 
 1. Import the repo and add every variable from `.env.example` (use `DATABASE_POOL_MAX=1` on serverless).
-2. Set `SITE_URL` to the live domain and add `https://<domain>/auth/google/callback` to the Google OAuth client. Set `SMS_PROVIDER` to `twilio` or `msg91` with its keys.
+2. Set `SITE_URL` to the live domain, add `https://<domain>/auth/google/callback` to the Google OAuth client, and add the domain to Firebase's authorized domains.
 3. In Razorpay, add the webhook `https://<domain>/api/webhooks/razorpay` with events `payment.captured` and `order.paid`.
 4. Run `npm run db:migrate` against production once.
 
@@ -134,7 +137,7 @@ drizzle/                               SQL migrations
 - Write the real size guide, shipping & returns policy and contact details (`components/store/info-modal.tsx`), and add privacy/terms pages (Razorpay requires them for live activation).
 - Complete Razorpay KYC and switch to `rzp_live_` keys.
 - Set shipping fees if you charge them (`NEXT_PUBLIC_SHIPPING_FEE`, `NEXT_PUBLIC_FREE_SHIPPING_ABOVE`).
-- Publish the Google OAuth app and pick an SMS provider (`twilio` / `msg91`).
+- Publish the Google OAuth app; put the Firebase project on the Blaze plan for mobile OTP.
 - Set up a sending domain with Resend for order confirmation emails (`RESEND_API_KEY`).
 - Make sure `PAYMENT_MODE` is **not** set in production (it is ignored there anyway).
 - Optional next steps: courier integration (e.g. Shiprocket) for labels and tracking, refunds from the admin through the Razorpay API, CAPTCHA (e.g. Cloudflare Turnstile) on the mobile OTP form, product detail pages with their own URLs for SEO.

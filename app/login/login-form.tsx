@@ -1,27 +1,25 @@
 "use client";
-import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, ArrowRight, Loader2, LogOut, Smartphone } from "lucide-react";
-import { api } from "@/components/store/api";
-import { formatIndianMobile } from "@/lib/phone";
+import { ArrowLeft, LogOut } from "lucide-react";
+import { PhoneOtp, type FirebaseConfig } from "./phone-otp";
 
 type Props = {
   next: string;
   error: string;
   googleEnabled: boolean;
-  smsEnabled: boolean;
-  devOtp: boolean;
-  /** Set when logged in but the account still needs Google or a mobile number linked. */
-  viewer: { email: string | null; phone: string | null; name: string } | null;
+  firebase: FirebaseConfig | null;
+  /** Set when a logged-in visitor must add the missing method (required before buying). */
+  viewer: { email: string | null; phone: string | null } | null;
 };
 
-export function LoginForm({ next, error, googleEnabled, smsEnabled, devOtp, viewer }: Props) {
-  const googleHref = `/auth/google?next=${encodeURIComponent(next)}`;
+export function LoginForm({ next, error, googleEnabled, firebase, viewer }: Props) {
   const router = useRouter();
-  // Re-runs the server page: complete accounts are redirected to `next`,
-  // otherwise it shows the remaining linking step.
-  const done = () => router.refresh();
+  const googleHref = `/auth/google?next=${encodeURIComponent(next)}`;
+  const done = () => {
+    router.replace(next);
+    router.refresh();
+  };
 
   return (
     <main className="auth-page">
@@ -35,7 +33,7 @@ export function LoginForm({ next, error, googleEnabled, smsEnabled, devOtp, view
             <div className="eyebrow">WELCOME TO BERRY’S</div>
             <h1>Login or sign up.</h1>
             <p>
-              Use your Google account or mobile number. New here? We’ll create your account automatically.
+              Use your Google account or your mobile number. New here? Your account is created automatically.
             </p>
             {error && <p className="form-error">{error}</p>}
             {googleEnabled && (
@@ -44,22 +42,25 @@ export function LoginForm({ next, error, googleEnabled, smsEnabled, devOtp, view
                 Continue with Google
               </a>
             )}
-            {googleEnabled && smsEnabled && (
+            {googleEnabled && firebase && (
               <div className="auth-divider">
                 <span>or use your mobile number</span>
               </div>
             )}
-            {smsEnabled && <PhoneOtp devOtp={devOtp} onVerified={done} />}
-            {!googleEnabled && !smsEnabled && (
-              <p className="form-error">Login isn’t configured yet. Add Google or SMS settings to .env.</p>
+            {firebase && <PhoneOtp config={firebase} onVerified={done} />}
+            {!googleEnabled && !firebase && (
+              <p className="form-error">
+                Login isn’t configured yet. Add Google or Firebase settings to .env.
+              </p>
             )}
           </>
         ) : (
           <>
-            <div className="eyebrow">ONE LAST STEP</div>
+            <div className="eyebrow">BEFORE YOU BUY</div>
             <h1>{viewer.phone ? "Link your Google account." : "Verify your mobile number."}</h1>
             <p>
-              Your Berry’s account uses both, so you can log in with either next time.
+              To place an order we need both your Google email and a verified mobile number, for order updates
+              and delivery.
               <br />
               {viewer.email ? `Logged in with Google as ${viewer.email}.` : `Logged in with ${viewer.phone}.`}
             </p>
@@ -73,8 +74,8 @@ export function LoginForm({ next, error, googleEnabled, smsEnabled, devOtp, view
               ) : (
                 <p className="form-error">Google login isn’t configured yet.</p>
               )
-            ) : smsEnabled ? (
-              <PhoneOtp devOtp={devOtp} onVerified={done} />
+            ) : firebase ? (
+              <PhoneOtp config={firebase} onVerified={done} />
             ) : (
               <p className="form-error">Mobile verification isn’t configured yet.</p>
             )}
@@ -92,117 +93,6 @@ export function LoginForm({ next, error, googleEnabled, smsEnabled, devOtp, view
         </Link>
       </div>
     </main>
-  );
-}
-
-/** Mobile number → SMS code → verified. */
-function PhoneOtp({ devOtp, onVerified }: { devOtp: boolean; onVerified: () => void }) {
-  const [phone, setPhone] = useState("");
-  const [sentTo, setSentTo] = useState("");
-  const [code, setCode] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const [cooldown, setCooldown] = useState(0);
-
-  useEffect(() => {
-    if (cooldown <= 0) return;
-    const t = setTimeout(() => setCooldown((c) => c - 1), 1000);
-    return () => clearTimeout(t);
-  }, [cooldown]);
-
-  async function send(e?: React.FormEvent) {
-    e?.preventDefault();
-    setBusy(true);
-    setError("");
-    try {
-      const res = await api<{ phone: string }>("/api/auth/otp/send", {
-        method: "POST",
-        json: { phone: sentTo || phone },
-      });
-      setSentTo(res.phone);
-      setCode("");
-      setCooldown(30);
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function verify(e: React.FormEvent) {
-    e.preventDefault();
-    setBusy(true);
-    setError("");
-    try {
-      await api("/api/auth/otp/verify", { method: "POST", json: { phone: sentTo, code } });
-      onVerified();
-    } catch (err) {
-      setError((err as Error).message);
-      setBusy(false);
-    }
-  }
-
-  if (!sentTo) {
-    return (
-      <form className="checkout-form auth-form" onSubmit={send}>
-        <label>
-          Mobile number
-          <div className="phone-input">
-            <span>+91</span>
-            <input
-              type="tel"
-              inputMode="numeric"
-              autoComplete="tel-national"
-              placeholder="98765 43210"
-              required
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-            />
-          </div>
-        </label>
-        {error && <p className="form-error">{error}</p>}
-        <button className="primary" disabled={busy}>
-          {busy ? <Loader2 className="spin" size={17} /> : <Smartphone size={17} />}
-          Send code by SMS
-        </button>
-      </form>
-    );
-  }
-
-  return (
-    <form className="checkout-form auth-form" onSubmit={verify}>
-      <label>
-        Enter the 6-digit code sent to {formatIndianMobile(sentTo)}
-        <input
-          inputMode="numeric"
-          autoComplete="one-time-code"
-          pattern="[0-9]{4,8}"
-          maxLength={8}
-          required
-          autoFocus
-          value={code}
-          onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
-        />
-      </label>
-      {devOtp && (
-        <p className="test-note">
-          Development mode: no SMS is sent. The code is printed in the terminal running <b>npm run dev</b>.
-        </p>
-      )}
-      {error && <p className="form-error">{error}</p>}
-      <button className="primary" disabled={busy}>
-        {busy ? <Loader2 className="spin" size={17} /> : <ArrowRight size={17} />}
-        Verify and continue
-      </button>
-      <div className="otp-actions">
-        <button type="button" className="text-link" onClick={() => setSentTo("")}>
-          Change number
-        </button>
-        <button type="button" className="text-link" disabled={busy || cooldown > 0} onClick={() => send()}>
-          {cooldown > 0 ? `Resend in ${cooldown}s` : "Resend code"}
-        </button>
-      </div>
-    </form>
   );
 }
 

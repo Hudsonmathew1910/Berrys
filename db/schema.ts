@@ -50,14 +50,6 @@ export const sessions = pgTable(
   (t) => [index("sessions_user_idx").on(t.userId)],
 ).enableRLS();
 
-/** One-time codes for the built-in (development) SMS provider. Hashed, short-lived. */
-export const otpCodes = pgTable("otp_codes", {
-  phone: text("phone").primaryKey(),
-  codeHash: text("code_hash").notNull(),
-  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
-  attempts: integer("attempts").notNull().default(0),
-}).enableRLS();
-
 export const products = pgTable("products", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),

@@ -19,14 +19,15 @@ const supabase = (() => {
  */
 const csp = [
   "default-src 'self'",
-  `script-src 'self' 'unsafe-inline' https://checkout.razorpay.com https://*.razorpay.com${isDev ? " 'unsafe-eval'" : ""}`,
+  // Razorpay Checkout; Google reCAPTCHA for Firebase mobile OTP.
+  `script-src 'self' 'unsafe-inline' https://checkout.razorpay.com https://*.razorpay.com https://www.google.com https://www.gstatic.com https://apis.google.com${isDev ? " 'unsafe-eval'" : ""}`,
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "font-src 'self' data: https://fonts.gstatic.com",
   // Product photos (Supabase Storage) and Google profile pictures.
-  `img-src 'self' data: blob: ${supabase} https://*.razorpay.com https://lh3.googleusercontent.com`,
-  // The browser only talks to this site and Razorpay; logins go through our own server.
-  `connect-src 'self' https://*.razorpay.com${isDev ? " ws: wss:" : ""}`,
-  "frame-src https://api.razorpay.com https://checkout.razorpay.com https://*.razorpay.com",
+  `img-src 'self' data: blob: ${supabase} https://*.razorpay.com https://lh3.googleusercontent.com https://www.gstatic.com`,
+  // This site, Razorpay, and Firebase Auth (sends/checks the SMS code).
+  `connect-src 'self' https://*.razorpay.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://www.google.com${isDev ? " ws: wss:" : ""}`,
+  "frame-src https://api.razorpay.com https://checkout.razorpay.com https://*.razorpay.com https://www.google.com https://recaptcha.google.com https://*.firebaseapp.com",
   "frame-ancestors 'none'",
   "base-uri 'self'",
   "form-action 'self'",
