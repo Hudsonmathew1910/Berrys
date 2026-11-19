@@ -5,6 +5,7 @@ import { listAddresses } from "@/lib/addresses";
 import { getViewer } from "@/lib/auth";
 import { firebaseConfig } from "@/lib/firebase-verify";
 import { CheckoutView } from "@/components/shop/checkout-view";
+import { paymentsReady } from "@/lib/orders";
 
 export const metadata: Metadata = { title: "Checkout — Berry’s", robots: { index: false } };
 export const dynamic = "force-dynamic";
@@ -23,6 +24,7 @@ export default async function CheckoutPage() {
       </nav>
       <h1 className="page-title">Checkout</h1>
       <CheckoutView
+        paymentsReady={paymentsReady()}
         email={viewer.email}
         addresses={addresses.map(({ id, name, phone, line1, line2, city, state, pincode, isDefault }) => ({
           id,

@@ -33,7 +33,16 @@ type CheckoutResponse = {
 };
 
 /** Checkout page: delivery address, order review and payment. */
-export function CheckoutView({ email, addresses }: { email: string; addresses: SavedAddress[] }) {
+export function CheckoutView({
+  email,
+  addresses,
+  paymentsReady = true,
+}: {
+  email: string;
+  addresses: SavedAddress[];
+  /** False until Razorpay keys are configured: show a notice, disable paying. */
+  paymentsReady?: boolean;
+}) {
   const router = useRouter();
   const toast = useToast();
   const bag = useBag();
@@ -238,7 +247,10 @@ export function CheckoutView({ email, addresses }: { email: string; addresses: S
             Some items changed. <Link href="/cart">Review your bag</Link>.
           </p>
         )}
-        <button className="primary" disabled={busy || loading || problems}>
+        {!paymentsReady && (
+          <p className="form-error">Online payment isn’t available yet — please check back soon.</p>
+        )}
+        <button className="primary" disabled={!paymentsReady || busy || loading || problems}>
           {busy ? <Loader2 className="spin" size={17} /> : <Lock size={17} />} Pay{" "}
           {money(subtotal + shipping)}
         </button>

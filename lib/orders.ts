@@ -31,6 +31,11 @@ export function isMockPayments() {
   return process.env.PAYMENT_MODE === "mock" && process.env.NODE_ENV !== "production";
 }
 
+/** Can the store take payments right now (Razorpay keys set, or local mock mode)? */
+export function paymentsReady() {
+  return isMockPayments() || !!(process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET);
+}
+
 class OutOfStock extends Error {}
 
 function newOrderId() {

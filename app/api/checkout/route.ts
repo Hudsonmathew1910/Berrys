@@ -4,7 +4,7 @@ import { getViewer } from "@/lib/auth";
 import { firebaseConfig } from "@/lib/firebase-verify";
 import { HttpError } from "@/lib/http-error";
 import { assertSameOrigin, handleError, json } from "@/lib/http";
-import { createPendingOrder } from "@/lib/orders";
+import { createPendingOrder, paymentsReady } from "@/lib/orders";
 import { clientIp, rateLimit } from "@/lib/rate-limit";
 import { addressSchema, bagSchema, checkoutSchema } from "@/lib/validation";
 
@@ -31,6 +31,9 @@ export async function POST(request: Request) {
     if (!viewer.email) throw new HttpError(403, "Link your Google account to place an order.");
     if (firebaseConfig() && !viewer.phone) {
       throw new HttpError(403, "Verify your mobile number to place an order.");
+    }
+    if (!paymentsReady()) {
+      throw new HttpError(503, "Online payment isn’t available yet. Please check back soon.");
     }
     await rateLimit("checkout", clientIp(request), 10, 10 * 60);
 
