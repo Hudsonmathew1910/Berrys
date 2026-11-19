@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
-import { ArrowUpRight, ChevronDown, Heart, LayoutDashboard, LogIn, Menu, Search, ShoppingBag, Star, User, X } from "lucide-react";
+import { ArrowUpRight, Heart, LayoutDashboard, Menu, Search, ShoppingBag, Star, User, X } from "lucide-react";
 import { useBag, useLikes } from "@/components/store/bag";
 import { GoogleIcon } from "./google-icon";
 
@@ -46,8 +46,7 @@ function HeaderLoginMenu() {
         <span className="action-symbol">
           <User size={20} />
         </span>
-        <span className="action-label">Sign In</span>
-        <ChevronDown size={14} className="dropdown-caret" />
+        <span className="action-label">Sign in</span>
       </button>
 
       <div className="header-login-dropdown" role="menu">
@@ -55,20 +54,11 @@ function HeaderLoginMenu() {
           role="menuitem"
           className="google-signin-action"
           href={`/auth/google?next=${encodeURIComponent(next)}`}
+          onClick={() => setOpen(false)}
         >
           <GoogleIcon size={18} />
           <span>Continue with Google</span>
         </a>
-        <div className="login-dropdown-divider" />
-        <Link
-          role="menuitem"
-          className="otp-signin-action"
-          href="/login"
-          onClick={() => setOpen(false)}
-        >
-          <LogIn size={15} />
-          <span>Login with Phone / SMS</span>
-        </Link>
       </div>
     </div>
   );

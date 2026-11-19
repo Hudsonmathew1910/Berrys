@@ -71,9 +71,10 @@ a.header-dashboard-link {
   font-size: 12px;
   font-weight: 500;
   text-decoration: none;
-  padding: 6px 4px;
-  border-radius: 6px;
-  transition: color 0.15s ease, background 0.15s ease;
+  padding: 6px 0;
+  background: none;
+  border: none;
+  transition: color 0.15s ease;
 }
 a.shop-header-action:hover,
 a.header-dashboard-link:hover {
@@ -81,14 +82,13 @@ a.header-dashboard-link:hover {
 }
 a.header-dashboard-link {
   color: var(--navy);
-  background: #f4efe6;
-  padding: 6px 12px;
-  border-radius: 20px;
-  border: 1px solid #e5ded0;
+  background: none;
+  border: none;
+  padding: 6px 0;
 }
 a.header-dashboard-link:hover {
-  background: #ede6d8;
-  color: var(--navy);
+  background: none;
+  color: var(--gold);
 }
 .action-symbol {
   position: relative;
@@ -120,50 +120,40 @@ a.header-dashboard-link:hover {
 /* Header Login Dropdown (Click & Hover) */
 .header-login-wrap {
   position: relative;
+  display: inline-flex;
+  align-items: center;
 }
 .header-login-btn {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 6px 10px;
-  border-radius: 20px;
-  background: #fff;
-  border: 1px solid #dfded7;
+  gap: 8px;
+  padding: 6px 0;
+  background: none;
+  border: none;
   color: var(--navy);
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 500;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: color 0.15s ease;
 }
 .header-login-btn:hover,
 .header-login-wrap.open .header-login-btn {
-  border-color: var(--gold);
-  color: var(--navy);
-  background: #faf7f0;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
-}
-.header-login-btn .dropdown-caret {
-  transition: transform 0.2s ease;
-  color: #7b837c;
-}
-.header-login-wrap.open .header-login-btn .dropdown-caret {
-  transform: rotate(180deg);
+  color: var(--gold);
+  background: none;
+  box-shadow: none;
+  border: none;
 }
 .header-login-dropdown {
   position: absolute;
-  top: calc(100% + 8px);
+  top: 100%;
   right: 0;
+  padding-top: 10px; /* invisible hover bridge so mouse cursor won't lose hover */
   min-width: 220px;
-  background: #ffffff;
-  border: 1px solid #e3e2da;
-  border-radius: 12px;
-  box-shadow: 0 10px 25px -5px rgba(24, 49, 71, 0.12), 0 4px 10px -2px rgba(24, 49, 71, 0.06);
-  padding: 8px;
   z-index: 50;
   opacity: 0;
   visibility: hidden;
-  transform: translateY(-4px);
-  transition: opacity 0.18s ease, transform 0.18s ease, visibility 0.18s;
+  transform: translateY(-2px);
+  transition: opacity 0.15s ease, transform 0.15s ease, visibility 0.15s;
 }
 .header-login-wrap.open .header-login-dropdown {
   opacity: 1;
@@ -175,47 +165,25 @@ a.header-dashboard-link:hover {
   align-items: center;
   gap: 10px;
   width: 100%;
-  padding: 9px 12px;
-  border-radius: 8px;
+  padding: 10px 14px;
+  border-radius: 10px;
   background: #ffffff;
-  border: 1px solid #e5e5dc;
+  border: 1px solid #e3e2da;
+  box-shadow: 0 10px 25px -4px rgba(24, 49, 71, 0.12), 0 4px 10px -2px rgba(24, 49, 71, 0.05);
   color: #202124;
   font-size: 12px;
   font-weight: 500;
   text-decoration: none;
-  transition: background 0.15s, border-color 0.15s;
+  white-space: nowrap;
+  transition: background 0.15s, border-color 0.15s, box-shadow 0.15s;
 }
 .google-signin-action:hover {
   background: #f8f9fa;
-  border-color: #dadce0;
-}
-.login-dropdown-divider {
-  height: 1px;
-  background: #efeee8;
-  margin: 6px 4px;
-}
-.otp-signin-action {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  padding: 8px 12px;
-  border-radius: 8px;
-  color: var(--ink);
-  font-size: 11px;
-  font-weight: 500;
-  text-decoration: none;
-  transition: background 0.15s ease;
-}
-.otp-signin-action:hover {
-  background: #f7f6f0;
-  color: var(--navy);
+  border-color: #be9560;
 }
 .header-login-skeleton {
-  width: 80px;
-  height: 32px;
-  border-radius: 20px;
-  background: #eee;
+  width: 60px;
+  height: 24px;
 }
 .menu-toggle {
   display: none;
@@ -1041,21 +1009,18 @@ a.account-order:hover {
   }
   .shop-header-action .action-label,
   .header-dashboard-link .action-label,
-  .header-login-btn .action-label,
-  .header-login-btn .dropdown-caret {
+  .header-login-btn .action-label {
     display: none;
   }
-  .header-dashboard-link {
-    padding: 6px;
-    border-radius: 50%;
-  }
+  .header-dashboard-link,
   .header-login-btn {
-    padding: 6px;
-    border-radius: 50%;
+    padding: 4px;
+    background: none;
+    border: none;
   }
   .header-login-dropdown {
-    right: -20px;
-    min-width: 210px;
+    right: -10px;
+    min-width: 200px;
   }
   .site-header .store-search {
     order: 5;
