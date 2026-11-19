@@ -1,20 +1,23 @@
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
+import { getCategories } from "@/lib/categories";
+import { getContent } from "@/lib/content";
 
 /** Shared footer. Its background matches the logo artwork (#183147). */
-export function SiteFooter() {
+export async function SiteFooter() {
+  const [categories, text] = await Promise.all([getCategories(), getContent("footer")]);
   return (
     <footer className="site-footer">
       <div className="footer-top">
         <div className="footer-brand">
           <img src="/images/berrys-logo-full.webp" alt="Berry’s Clothing Brand, est. 2026" />
-          <p>Little clothes. Lasting memories.</p>
+          <p>{text.tagline}</p>
         </div>
         <div>
           <h4>THE LITTLE WARDROBE</h4>
-          {["Co-ord sets", "Tops & tees", "Trousers", "Dresses", "Sleepwear"].map((c) => (
-            <Link key={c} href={`/shop?category=${encodeURIComponent(c)}`}>
-              {c}
+          {categories.slice(0, 6).map((c) => (
+            <Link key={c.id} href={`/shop?category=${encodeURIComponent(c.name)}`}>
+              {c.name}
             </Link>
           ))}
         </div>
@@ -27,12 +30,8 @@ export function SiteFooter() {
         </div>
         <div className="footer-note">
           <span className="eyebrow">A LITTLE NOTE</span>
-          <h3>
-            Good things
-            <br />
-            come in little sizes.
-          </h3>
-          <p>Discover a wardrobe full of personality.</p>
+          <h3>{text.noteTitle}</h3>
+          <p>{text.noteText}</p>
           <Link className="text-link" href="/shop">
             Find their favourite <ArrowRight size={16} />
           </Link>

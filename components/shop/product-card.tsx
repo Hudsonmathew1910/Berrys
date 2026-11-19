@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { Heart } from "lucide-react";
-import { discountPercent, isSoldOut, money, sizes, type Product } from "@/lib/catalog";
+import { discountPercent, isSoldOut, money, type Product } from "@/lib/catalog";
 import { toggleLike, useLikes } from "@/components/store/bag";
 
 /** Product tile used on the home page, shop listing, favourites and "you may also like". */
@@ -18,8 +18,10 @@ export function ProductCard({ product: p, eager = false }: { product: Product; e
         <Link className="product-link" href={href} aria-label={"View " + p.name}>
           <img src={p.image} alt={p.name} loading={eager ? "eager" : "lazy"} />
         </Link>
-        {(soldOut || p.badge) && (
-          <span className={"product-badge " + (soldOut ? "sold" : "")}>{soldOut ? "SOLD OUT" : p.badge}</span>
+        {(soldOut || p.badge || p.offer) && (
+          <span className={"product-badge " + (soldOut ? "sold" : "")}>
+            {soldOut ? "SOLD OUT" : p.offer ? "SALE" : p.badge}
+          </span>
         )}
         <button
           type="button"
@@ -52,7 +54,7 @@ export function ProductCard({ product: p, eager = false }: { product: Product; e
         )}
       </div>
       <div className="card-sizes" aria-label="Sizes">
-        {sizes.map((s) => (
+        {p.sizes.map((s) => (
           <span
             key={s}
             className={!p.stock[s] ? "unavailable" : ""}

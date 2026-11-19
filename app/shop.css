@@ -956,3 +956,50 @@ a.account-order:hover {
     align-items: stretch;
   }
 }
+
+/* Product gallery & offers */
+.product-gallery {
+  display: grid;
+  gap: 10px;
+}
+.gallery-thumbs {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.gallery-thumbs button {
+  width: 68px;
+  height: 84px;
+  padding: 0;
+  border: 2px solid transparent;
+  background: var(--paper);
+  overflow: hidden;
+}
+.gallery-thumbs button.active {
+  border-color: var(--navy);
+}
+.gallery-thumbs img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.offer-note {
+  display: inline-block;
+  margin: 4px 0 6px;
+  padding: 4px 10px;
+  background: #f6e3dd;
+  color: #a5503f;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+}
+
+/* "Page not found" (site-wide) */
+.not-found-page {
+  min-height: 100vh;
+  padding: 28px 16px;
+  display: grid;
+  align-content: start;
+  justify-items: center;
+  background: var(--cream);
+}

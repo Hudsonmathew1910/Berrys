@@ -30,6 +30,12 @@ export async function createSession(userId: string) {
   (await cookies()).set(COOKIE, token, cookieOptions(SESSION_DAYS * 86_400));
 }
 
+/** Hash of the current login session token (links dashboard unlocks to this login). */
+export async function currentSessionHash() {
+  const token = (await cookies()).get(COOKIE)?.value;
+  return token ? hash(token) : null;
+}
+
 /** The logged-in user, or null. */
 export async function getSessionUser() {
   const token = (await cookies()).get(COOKIE)?.value;

@@ -4,6 +4,7 @@ import {
   check,
   index,
   integer,
+  jsonb,
   pgTable,
   primaryKey,
   text,
@@ -50,10 +51,43 @@ export const sessions = pgTable(
   (t) => [index("sessions_user_idx").on(t.userId)],
 ).enableRLS();
 
+/** Product categories, managed in the dashboard. Each defines its own size range. */
+export const categories = pgTable("categories", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  /** Display name; products reference it (renames cascade automatically). */
+  name: text("name").notNull().unique(),
+  description: text("description").notNull().default(""),
+  image: text("image").notNull().default(""),
+  /** Ordered size labels for products in this category, e.g. {S,M,L,XL} or {2-3Y,3-4Y}. */
+  sizes: text("sizes")
+    .array()
+    .notNull()
+    .default(sql`'{S,M,L,XL}'::text[]`),
+  sortOrder: integer("sort_order").notNull().default(0),
+  active: boolean("active").notNull().default(true),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}).enableRLS();
+
+export const genders = ["girls", "boys", "unisex"] as const;
+export type Gender = (typeof genders)[number];
+
 export const products = pgTable("products", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
-  category: text("category").notNull(),
+  category: text("category")
+    .notNull()
+    .references(() => categories.name, { onUpdate: "cascade", onDelete: "restrict" }),
+  gender: text("gender").$type<Gender>().notNull().default("unisex"),
+  /** Extra search keywords. */
+  tags: text("tags")
+    .array()
+    .notNull()
+    .default(sql`'{}'::text[]`),
+  /** Gallery (up to 6); `image` is always the first one. */
+  images: text("images")
+    .array()
+    .notNull()
+    .default(sql`'{}'::text[]`),
   /** Selling price in whole rupees. */
   price: integer("price").notNull(),
   /** "Was" price in whole rupees, shown struck through. */
@@ -99,6 +133,7 @@ export const orderStatuses = [
   "cancelled",
   "expired",
   "needs_refund",
+  "refunded",
 ] as const;
 export type OrderStatus = (typeof orderStatuses)[number];
 
@@ -130,6 +165,10 @@ export const orders = pgTable(
     courier: text("courier").notNull().default(""),
     trackingNumber: text("tracking_number").notNull().default(""),
     trackingUrl: text("tracking_url").notNull().default(""),
+    refundId: text("refund_id"),
+    refundedAt: timestamp("refunded_at", { withTimezone: true }),
+    /** Internal note for staff. */
+    staffNote: text("staff_note").notNull().default(""),
   },
   (t) => [
     index("orders_status_idx").on(t.status),
@@ -156,13 +195,156 @@ export const orderItems = pgTable(
   (t) => [index("order_items_order_idx").on(t.orderId)],
 ).enableRLS();
 
-export const admins = pgTable("admins", {
-  /** The owner's account. */
-  userId: uuid("user_id")
-    .primaryKey()
-    .references(() => users.id, { onDelete: "cascade" }),
-  email: text("email").notNull(),
+/** Dashboard permissions that can be ticked per staff member. Admins have all of them. */
+export const permissionKeys = [
+  "orders",
+  "products",
+  "categories",
+  "offers",
+  "stock",
+  "payments",
+  "customers",
+  "analytics",
+  "content",
+  "refunds",
+  "delete_products",
+] as const;
+export type Permission = (typeof permissionKeys)[number];
+export type StaffRole = "admin" | "staff";
+
+/**
+ * Shop admins and staff. Added by an admin using the person's Google email;
+ * access applies when they log in with that Google account. Each sets their
+ * own dashboard password on first entry (passwordHash is null until then).
+ */
+export const staffMembers = pgTable("staff_members", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  email: text("email").unique(),
+  /** Reserved for mobile-number staff accounts (mobile login is on hold). */
+  phone: text("phone").unique(),
+  name: text("name").notNull().default(""),
+  role: text("role").$type<StaffRole>().notNull(),
+  permissions: text("permissions")
+    .array()
+    .$type<Permission[]>()
+    .notNull()
+    .default(sql`'{}'::text[]`),
+  passwordHash: text("password_hash"),
+  active: boolean("active").notNull().default(true),
+  createdBy: text("created_by").notNull().default(""),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
+}).enableRLS();
+
+/**
+ * Unlocked dashboard sessions. Tied to the login session (logging out locks
+ * the dashboard) and to a browser-session cookie (closing the browser locks it).
+ */
+export const dashboardSessions = pgTable("dashboard_sessions", {
+  tokenHash: text("token_hash").primaryKey(),
+  staffId: uuid("staff_id")
+    .notNull()
+    .references(() => staffMembers.id, { onDelete: "cascade" }),
+  loginTokenHash: text("login_token_hash")
+    .notNull()
+    .references(() => sessions.tokenHash, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+}).enableRLS();
+
+/** Every stock change, so stock and sales can be traced. */
+export const stockMovements = pgTable(
+  "stock_movements",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    productId: text("product_id").notNull(),
+    size: text("size").notNull(),
+    /** + added, − removed. */
+    change: integer("change").notNull(),
+    /** order | released | restock | adjust | refund */
+    reason: text("reason").notNull(),
+    orderId: text("order_id"),
+    actor: text("actor").notNull().default("system"),
+    note: text("note").notNull().default(""),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("stock_movements_product_idx").on(t.productId),
+    index("stock_movements_created_idx").on(t.createdAt),
+  ],
+).enableRLS();
+
+/** Order history: every status change, with who and when. */
+export const orderEvents = pgTable(
+  "order_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orderId: text("order_id")
+      .notNull()
+      .references(() => orders.id, { onDelete: "cascade" }),
+    status: text("status").notNull(),
+    note: text("note").notNull().default(""),
+    actor: text("actor").notNull().default("system"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("order_events_order_idx").on(t.orderId)],
+).enableRLS();
+
+/** Automatic discounts on products, categories or the whole store, between dates. */
+export const offers = pgTable("offers", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: text("name").notNull(),
+  /** percent | flat (₹ off) */
+  type: text("type").$type<"percent" | "flat">().notNull(),
+  value: integer("value").notNull(),
+  /** all | category | product */
+  scope: text("scope").$type<"all" | "category" | "product">().notNull(),
+  /** Category names or product ids, depending on scope. */
+  targets: text("targets")
+    .array()
+    .notNull()
+    .default(sql`'{}'::text[]`),
+  startsAt: timestamp("starts_at", { withTimezone: true }).notNull(),
+  endsAt: timestamp("ends_at", { withTimezone: true }),
+  active: boolean("active").notNull().default(true),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}).enableRLS();
+
+/** Staff requests for actions they aren't allowed to do themselves (refunds, deletions). */
+export const approvalRequests = pgTable("approval_requests", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  /** refund | delete_product */
+  type: text("type").$type<"refund" | "delete_product">().notNull(),
+  targetId: text("target_id").notNull(),
+  reason: text("reason").notNull().default(""),
+  status: text("status").$type<"pending" | "approved" | "rejected">().notNull().default("pending"),
+  requestedBy: text("requested_by").notNull(),
+  decidedBy: text("decided_by"),
+  decisionNote: text("decision_note").notNull().default(""),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  decidedAt: timestamp("decided_at", { withTimezone: true }),
+}).enableRLS();
+
+/** Who changed what in the dashboard. */
+export const activityLog = pgTable(
+  "activity_log",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    actor: text("actor").notNull(),
+    action: text("action").notNull(),
+    target: text("target").notNull().default(""),
+    details: text("details").notNull().default(""),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("activity_log_created_idx").on(t.createdAt)],
+).enableRLS();
+
+/** Editable website text (announcement bar, home page, help pages). */
+export const siteContent = pgTable("site_content", {
+  key: text("key").primaryKey(),
+  value: jsonb("value").notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedBy: text("updated_by").notNull().default(""),
 }).enableRLS();
 
 /** Fixed-window request counters used by lib/rate-limit.ts (shared across server instances). */

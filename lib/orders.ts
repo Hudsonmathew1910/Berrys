@@ -6,10 +6,16 @@ import { HttpError } from "@/lib/http-error";
 import { shippingFor } from "@/lib/catalog";
 import { sendOrderConfirmation } from "@/lib/email";
 import { serverEnv } from "@/lib/env";
+import { activeOffers, bestPrice } from "@/lib/offers";
 import { createRazorpayOrder } from "@/lib/razorpay";
 import type { CheckoutInput } from "@/lib/validation";
 
-const { products, inventory, orders, orderItems } = schema;
+const { products, inventory, orders, orderItems, stockMovements, orderEvents } = schema;
+
+/** Records an order history entry. */
+export async function addOrderEvent(tx: Tx, orderId: string, status: string, actor = "system", note = "") {
+  await tx.insert(orderEvents).values({ orderId, status, actor, note });
+}
 
 /** How long stock stays reserved while the customer completes payment. */
 const PAYMENT_WINDOW_MINUTES = 30;
@@ -32,7 +38,7 @@ function newOrderId() {
 }
 
 /** Decrements stock only if enough is left. Throws OutOfStock otherwise (rolling back the tx). */
-async function reserveLine(tx: Tx, productId: string, size: string, quantity: number) {
+async function reserveLine(tx: Tx, productId: string, size: string, quantity: number, orderId: string) {
   const updated = await tx
     .update(inventory)
     .set({ quantity: sql`${inventory.quantity} - ${quantity}` })
@@ -45,15 +51,24 @@ async function reserveLine(tx: Tx, productId: string, size: string, quantity: nu
     )
     .returning({ quantity: inventory.quantity });
   if (!updated.length) throw new OutOfStock(`${productId}:${size}`);
+  await tx.insert(stockMovements).values({ productId, size, change: -quantity, reason: "order", orderId });
 }
 
-async function restoreStock(tx: Tx, orderId: string) {
+export async function restoreStock(tx: Tx, orderId: string, reason = "released", actor = "system") {
   const items = await tx.select().from(orderItems).where(eq(orderItems.orderId, orderId));
   for (const item of items) {
     await tx
       .update(inventory)
       .set({ quantity: sql`${inventory.quantity} + ${item.quantity}` })
       .where(and(eq(inventory.productId, item.productId), eq(inventory.size, item.size)));
+    await tx.insert(stockMovements).values({
+      productId: item.productId,
+      size: item.size,
+      change: item.quantity,
+      reason,
+      orderId,
+      actor,
+    });
   }
 }
 
@@ -88,6 +103,7 @@ export async function createPendingOrder(input: CheckoutInput, viewer: Viewer) {
     );
   }
 
+  const offers = await activeOffers();
   const { total } = await db.transaction(async (tx) => {
     const ids = [...new Set([...lines.values()].map((l) => l.productId))];
     const found = await tx
@@ -99,13 +115,15 @@ export async function createPendingOrder(input: CheckoutInput, viewer: Viewer) {
     const priced = [...lines.values()].map((line) => {
       const p = found.find((x) => x.id === line.productId);
       if (!p) throw new HttpError(409, "An item in your bag is no longer available. Please update your bag.");
-      subtotal += p.price * line.quantity;
-      return { ...line, product: p };
+      // Same offer rules as the storefront, applied on the server.
+      const unitPrice = bestPrice(p, offers).price;
+      subtotal += unitPrice * line.quantity;
+      return { ...line, product: p, unitPrice };
     });
 
     for (const line of priced) {
       try {
-        await reserveLine(tx, line.productId, line.size, line.quantity);
+        await reserveLine(tx, line.productId, line.size, line.quantity, orderId);
       } catch (e) {
         if (e instanceof OutOfStock) {
           throw new HttpError(
@@ -141,9 +159,10 @@ export async function createPendingOrder(input: CheckoutInput, viewer: Viewer) {
         category: l.product.category,
         size: l.size,
         quantity: l.quantity,
-        price: l.product.price,
+        price: l.unitPrice,
       })),
     );
+    await addOrderEvent(tx, orderId, "pending_payment", input.email, "Checkout started");
     return { total };
   });
 
@@ -198,7 +217,16 @@ export async function releaseOrder(
         ),
       )
       .returning({ id: orders.id });
-    if (released.length) await restoreStock(tx, orderId);
+    if (released.length) {
+      await restoreStock(tx, orderId);
+      await addOrderEvent(
+        tx,
+        orderId,
+        status,
+        "system",
+        status === "expired" ? "Payment window expired" : "Customer closed the payment window",
+      );
+    }
     return released.length > 0;
   });
 }
@@ -234,6 +262,7 @@ export async function markOrderPaid(razorpayOrderId: string, razorpayPaymentId: 
         .update(orders)
         .set({ status: "paid", paidAt: new Date(), razorpayPaymentId })
         .where(eq(orders.id, order.id));
+      await addOrderEvent(tx, order.id, "paid", "razorpay", razorpayPaymentId);
       return { orderId: order.id, status: "paid" as const };
     }
 
@@ -243,7 +272,7 @@ export async function markOrderPaid(razorpayOrderId: string, razorpayPaymentId: 
       try {
         await tx.transaction(async (sp) => {
           const items = await sp.select().from(orderItems).where(eq(orderItems.orderId, order.id));
-          for (const i of items) await reserveLine(sp, i.productId, i.size, i.quantity);
+          for (const i of items) await reserveLine(sp, i.productId, i.size, i.quantity, order.id);
         });
       } catch (e) {
         if (!(e instanceof OutOfStock)) throw e;
@@ -253,6 +282,7 @@ export async function markOrderPaid(razorpayOrderId: string, razorpayPaymentId: 
         .update(orders)
         .set({ status, paidAt: new Date(), razorpayPaymentId })
         .where(eq(orders.id, order.id));
+      await addOrderEvent(tx, order.id, status, "razorpay", "Late payment " + razorpayPaymentId);
       return { orderId: order.id, status };
     }
 

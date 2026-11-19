@@ -6,7 +6,7 @@ import { getViewer } from "@/lib/auth";
 import { money } from "@/lib/catalog";
 import { formatIndianMobile } from "@/lib/phone";
 import { orderForUser } from "@/lib/store-data";
-import { statusLabels } from "@/components/admin/types";
+import { statusLabels } from "@/lib/order-status";
 
 export const metadata: Metadata = { title: "Order details — Berry’s", robots: { index: false } };
 export const dynamic = "force-dynamic";

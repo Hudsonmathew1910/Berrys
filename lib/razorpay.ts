@@ -47,3 +47,20 @@ export function verifyWebhookSignature(rawBody: string, signature: string) {
   const expected = createHmac("sha256", serverEnv.razorpayWebhookSecret()).update(rawBody).digest("hex");
   return safeEqualHex(expected, signature);
 }
+
+/** Full refund of a captured payment — https://razorpay.com/docs/api/refunds/create-normal/ */
+export async function refundPayment(
+  paymentId: string,
+  notes?: Record<string, string>,
+): Promise<{ id: string }> {
+  const auth = Buffer.from(`${serverEnv.razorpayKeyId()}:${serverEnv.razorpayKeySecret()}`).toString(
+    "base64",
+  );
+  const res = await fetch(`https://api.razorpay.com/v1/payments/${encodeURIComponent(paymentId)}/refund`, {
+    method: "POST",
+    headers: { Authorization: `Basic ${auth}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ speed: "normal", notes }),
+  });
+  if (!res.ok) throw new Error(`Razorpay refund failed (${res.status}): ${await res.text()}`);
+  return res.json();
+}

@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { ArrowRight, ArrowUpRight, Package } from "lucide-react";
-import { categories, money } from "@/lib/catalog";
+import { money } from "@/lib/catalog";
+import { getCategories } from "@/lib/categories";
+import { getContent } from "@/lib/content";
 import { categoryCounts, queryProducts } from "@/lib/store-data";
 import { ProductCard } from "@/components/shop/product-card";
 
@@ -9,7 +11,12 @@ export const dynamic = "force-dynamic";
 const shopHref = (c: string) => (c === "All pieces" ? "/shop" : `/shop?category=${encodeURIComponent(c)}`);
 
 export default async function HomePage() {
-  const cats = categories.slice(1);
+  const [catList, text] = await Promise.all([getCategories(), getContent("home")]);
+  const cats = catList.map((c) => c.name);
+  const categories = ["All pieces", ...cats];
+  // Featured banners: the first three categories in dashboard order.
+  const [mainCat, ...smallCats] = cats.slice(0, 3);
+  const describe = (name: string) => catList.find((c) => c.name === name)?.description;
   const [newIn, counts, ...firsts] = await Promise.all([
     queryProducts({ sort: "new", perPage: 8 }),
     categoryCounts(),
@@ -23,8 +30,8 @@ export default async function HomePage() {
       <div className="shopping-home">
         <section className="category-shelf" aria-label="Shop by category">
           <div className="shelf-title">
-            <h1>Find their next favourite.</h1>
-            <span>Little outfits. Plenty of choice.</span>
+            <h1>{text.shelfTitle}</h1>
+            <span>{text.shelfSubtitle}</span>
           </div>
           <div className="category-shortcuts">
             {categories.map((c, i) => {
@@ -47,28 +54,28 @@ export default async function HomePage() {
         </section>
 
         <section className="shopping-highlights" aria-label="Featured collections">
-          {first["Co-ord sets"] && (
-            <Link className="shopping-banner main-shopping-banner" href={shopHref("Co-ord sets")}>
+          {mainCat && first[mainCat] && (
+            <Link className="shopping-banner main-shopping-banner" href={shopHref(mainCat)}>
               <div className="banner-copy">
-                <span className="eyebrow">THE EVERYDAY WARDROBE</span>
+                <span className="eyebrow">{text.bannerEyebrow}</span>
                 <h2>
-                  Big on comfort.
+                  {text.bannerTitle}
                   <br />
-                  <em>Little on fuss.</em>
+                  <em>{text.bannerTitleEm}</em>
                 </h2>
-                <p>Ready-to-play co-ord sets</p>
-                <strong>From {money(first["Co-ord sets"].price)}</strong>
+                <p>{text.bannerText}</p>
+                <strong>From {money(first[mainCat].price)}</strong>
                 <span className="banner-cta">
-                  Shop co-ords <ArrowRight size={16} />
+                  Shop {mainCat.toLowerCase()} <ArrowRight size={16} />
                 </span>
               </div>
               <div className="banner-product">
-                <img src={first["Co-ord sets"].image} alt={first["Co-ord sets"].name} />
+                <img src={first[mainCat].image} alt={first[mainCat].name} />
               </div>
               <span className="banner-corner">THE BERRY’S EDIT</span>
             </Link>
           )}
-          {(["Dresses", "Sleepwear"] as const).map((c, i) =>
+          {smallCats.map((c, i) =>
             first[c] ? (
               <Link
                 key={c}
@@ -76,8 +83,8 @@ export default async function HomePage() {
                 href={shopHref(c)}
               >
                 <div className="banner-copy">
-                  <span className="eyebrow">{i ? "BEDTIME FAVOURITES" : "TWIRL-READY FINDS"}</span>
-                  <h2>{i ? "Dream a little." : "Dress up the day."}</h2>
+                  <span className="eyebrow">{c.toUpperCase()}</span>
+                  <h2>{describe(c) || (i ? "Dream a little." : "Dress up the day.")}</h2>
                   <strong>From {money(first[c].price)}</strong>
                   <span className="banner-cta">
                     Shop {c.toLowerCase()} <ArrowRight size={14} />
@@ -94,7 +101,7 @@ export default async function HomePage() {
         <div className="section-heading">
           <div>
             <div className="eyebrow">JUST LANDED</div>
-            <h2>New little favourites</h2>
+            <h2>{text.newInTitle}</h2>
           </div>
           <Link className="text-link" href="/shop?sort=new">
             View all <ArrowRight size={16} />
@@ -125,16 +132,13 @@ export default async function HomePage() {
           <span>THE DETAILS MAKE THE DIFFERENCE.</span>
         </div>
         <div className="story-copy">
-          <div className="eyebrow">THE HEART OF BERRY’S</div>
+          <div className="eyebrow">{text.storyEyebrow}</div>
           <h2>
-            Childhood is fleeting.
+            {text.storyTitle}
             <br />
-            <em>Let them live in it.</em>
+            <em>{text.storyTitleEm}</em>
           </h2>
-          <p>
-            Clothes for cartwheels. For collecting pebbles. For the days that turn into the stories you tell.
-            Berry’s is a little celebration of it all.
-          </p>
+          <p>{text.storyText}</p>
           <Link className="text-link" href="/help/our-story">
             Get to know Berry’s <ArrowUpRight size={18} />
           </Link>

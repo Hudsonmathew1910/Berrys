@@ -2,7 +2,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { ArrowUpRight, Heart, Minus, Plus, ShoppingBag } from "lucide-react";
-import { isSoldOut, sizes, type Product } from "@/lib/catalog";
+import { isSoldOut, type Product } from "@/lib/catalog";
 import { addToBag, toggleLike, useBag, useLikes } from "@/components/store/bag";
 import { useToast } from "@/components/store/toast";
 
@@ -11,7 +11,7 @@ export function AddToBag({ product }: { product: Product }) {
   const bag = useBag();
   const likes = useLikes();
   const toast = useToast();
-  const [size, setSize] = useState(sizes.find((s) => product.stock[s] > 0) ?? "");
+  const [size, setSize] = useState(product.sizes.find((s) => product.stock[s] > 0) ?? "");
   const [qty, setQty] = useState(1);
   const [added, setAdded] = useState(false);
   const soldOut = isSoldOut(product);
@@ -34,7 +34,7 @@ export function AddToBag({ product }: { product: Product }) {
         </Link>
       </div>
       <div className="size-buttons">
-        {sizes.map((s) => (
+        {product.sizes.map((s) => (
           <button
             key={s}
             type="button"

@@ -18,7 +18,12 @@ const eslintConfig = defineConfig([
   {
     // Product photos come from Supabase Storage / user uploads with unknown
     // dimensions, so plain <img> is intentional throughout the storefront.
-    files: ["app/**/*.tsx", "components/store/**/*.tsx", "components/shop/**/*.tsx", "components/admin/**/*.tsx"],
+    files: [
+      "app/**/*.tsx",
+      "components/store/**/*.tsx",
+      "components/shop/**/*.tsx",
+      "components/dashboard/**/*.tsx",
+    ],
     rules: { "@next/next/no-img-element": "off" },
   },
 ]);

@@ -6,6 +6,7 @@ import { discountPercent, money } from "@/lib/catalog";
 import { getProduct, relatedProducts } from "@/lib/store-data";
 import { AddToBag } from "@/components/shop/add-to-bag";
 import { ProductCard } from "@/components/shop/product-card";
+import { ProductGallery } from "@/components/shop/product-gallery";
 
 export const dynamic = "force-dynamic";
 
@@ -36,10 +37,11 @@ export default async function ProductPage({ params }: Props) {
       </nav>
 
       <div className="product-detail">
-        <div className="product-detail-photo">
-          <img src={product.image} alt={product.name} />
-          {product.badge && <span className="product-badge">{product.badge}</span>}
-        </div>
+        <ProductGallery
+          images={product.images}
+          name={product.name}
+          badge={product.offer ? "SALE" : product.badge}
+        />
         <div className="product-detail-info">
           <div className="eyebrow">{product.category}</div>
           <h1>{product.name}</h1>
@@ -53,6 +55,7 @@ export default async function ProductPage({ params }: Props) {
               </>
             )}
           </div>
+          {product.offer && <div className="offer-note">{product.offer}</div>}
           <small className="muted">Inclusive of all taxes</small>
           <AddToBag product={product} />
           <div className="product-assurances">

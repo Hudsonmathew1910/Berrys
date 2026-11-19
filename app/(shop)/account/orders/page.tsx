@@ -4,7 +4,7 @@ import { ArrowRight, ShoppingBag } from "lucide-react";
 import { getViewer } from "@/lib/auth";
 import { money } from "@/lib/catalog";
 import { ordersForUser } from "@/lib/store-data";
-import { statusLabels } from "@/components/admin/types";
+import { statusLabels } from "@/lib/order-status";
 
 export const metadata: Metadata = { title: "My orders — Berry’s", robots: { index: false } };
 export const dynamic = "force-dynamic";

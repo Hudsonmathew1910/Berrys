@@ -3,13 +3,20 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
 import { ArrowUpRight, Heart, Menu, Search, ShoppingBag, Star, User, X } from "lucide-react";
-import { categories } from "@/lib/catalog";
 import { useBag, useLikes } from "@/components/store/bag";
 
 export type HeaderViewer = { name: string; email: string | null } | null;
 
 /** Shared header for every customer page: announcement, logo, search, account, favourites, bag, categories. */
-export function SiteHeader({ viewer }: { viewer: HeaderViewer }) {
+export function SiteHeader({
+  viewer,
+  categories,
+  announcement,
+}: {
+  viewer: HeaderViewer;
+  categories: string[];
+  announcement: string[];
+}) {
   const pathname = usePathname();
   const bag = useBag();
   const likes = useLikes();
@@ -19,15 +26,17 @@ export function SiteHeader({ viewer }: { viewer: HeaderViewer }) {
 
   return (
     <>
-      <div className="announcement">
-        <span>SMALL OUTFITS. BIG ADVENTURES.</span>
-        <span>
-          Thoughtful everyday wear, made for little ones <Star size={11} />
-        </span>
-        <span>
-          MEET YOUR NEW LITTLE FAVOURITES <ArrowUpRight size={12} />
-        </span>
-      </div>
+      {announcement.some(Boolean) && (
+        <div className="announcement">
+          {announcement.map((t, i) => (
+            <span key={i}>
+              {t}
+              {i === 1 && <Star size={11} />}
+              {i === 2 && <ArrowUpRight size={12} />}
+            </span>
+          ))}
+        </div>
+      )}
       <header className="site-header">
         <button
           className="menu-toggle"
@@ -87,7 +96,7 @@ export function SiteHeader({ viewer }: { viewer: HeaderViewer }) {
         >
           Shop all
         </Link>
-        {categories.slice(1).map((c) => (
+        {categories.map((c) => (
           <Link key={c} href={`/shop?category=${encodeURIComponent(c)}`} onClick={() => setMenuOpen(false)}>
             {c}
           </Link>

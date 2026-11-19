@@ -1,7 +1,6 @@
 import { z } from "zod";
-import { productCategories, sizes } from "@/lib/catalog";
-
-const sizeSchema = z.enum(sizes);
+/** Size labels are defined per category (e.g. "M" or "2-3Y"). */
+const sizeSchema = z.string().trim().min(1).max(20);
 
 export const bagSchema = z
   .array(
@@ -50,25 +49,27 @@ export function isAllowedImageUrl(url: string) {
   return !!base && url.startsWith(`${base}/storage/v1/object/public/product-images/`);
 }
 
+/** Product as edited in the dashboard. Sizes come from the chosen category. */
 export const productSchema = z
   .object({
     id: z.string().max(100).optional().default(""),
     name: z.string().trim().min(2, "Product name is too short.").max(100),
-    category: z.string().refine((c) => productCategories.includes(c), "Choose a valid category."),
-    price: z.number().int().min(1).max(1_000_000),
+    category: z.string().trim().min(1, "Choose a category.").max(80),
+    gender: z.enum(["girls", "boys", "unisex"]),
+    tags: z.array(z.string().trim().toLowerCase().min(1).max(30)).max(20).default([]),
+    price: z.number().int().min(1, "Enter the selling price.").max(1_000_000),
     originalPrice: z.number().int().min(1).max(1_000_000),
-    description: z.string().max(3000).default(""),
-    image: z.string().refine(isAllowedImageUrl, "Upload a product photo."),
-    badge: z.string().max(40).default(""),
+    description: z.string().max(5000).default(""),
+    images: z
+      .array(z.string().refine(isAllowedImageUrl, "Invalid image."))
+      .min(1, "Add at least one photo.")
+      .max(6, "Up to 6 photos."),
+    badge: z.string().trim().max(40).default(""),
     color: z.string().regex(/^#[a-f0-9]{6}$/i, "Choose a colour swatch."),
-    stock: z.object(
-      Object.fromEntries(sizes.map((s) => [s, z.number().int().min(0).max(100_000)])) as Record<
-        (typeof sizes)[number],
-        z.ZodNumber
-      >,
-    ),
+    active: z.boolean().default(true),
+    stock: z.record(z.string().min(1).max(20), z.number().int().min(0).max(100_000)),
   })
-  .refine((p) => p.originalPrice >= p.price, "Original price must be at least the selling price.");
+  .refine((p) => p.originalPrice >= p.price, "MRP must be at least the selling price.");
 export type ProductInput = z.infer<typeof productSchema>;
 
 export const indianStates = [

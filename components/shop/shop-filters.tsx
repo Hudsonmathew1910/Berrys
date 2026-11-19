@@ -1,6 +1,5 @@
 "use client";
 import { SlidersHorizontal } from "lucide-react";
-import { sizes } from "@/lib/catalog";
 
 /**
  * Sort / size / in-stock controls. A plain GET form, so filters live in the
@@ -13,6 +12,8 @@ export function ShopFilters(p: {
   sort: string;
   size?: string;
   stock: boolean;
+  gender?: string;
+  sizes: string[];
 }) {
   const submit = (e: React.ChangeEvent<HTMLSelectElement | HTMLInputElement>) =>
     e.currentTarget.form?.requestSubmit();
@@ -26,11 +27,19 @@ export function ShopFilters(p: {
           Size{" "}
           <select name="size" defaultValue={p.size ?? ""} onChange={submit}>
             <option value="">All sizes</option>
-            {sizes.map((s) => (
+            {p.sizes.map((s) => (
               <option key={s} value={s}>
                 {s}
               </option>
             ))}
+          </select>
+        </label>
+        <label>
+          For{" "}
+          <select name="gender" defaultValue={p.gender ?? ""} onChange={submit}>
+            <option value="">Everyone</option>
+            <option value="girls">Girls</option>
+            <option value="boys">Boys</option>
           </select>
         </label>
         <label className="check">

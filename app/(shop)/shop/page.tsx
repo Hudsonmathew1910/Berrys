@@ -2,15 +2,23 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Search } from "lucide-react";
-import { categories, sizes } from "@/lib/catalog";
-import { queryProducts, type ProductQuery } from "@/lib/store-data";
+import { getCategories } from "@/lib/categories";
+import { allSizes, queryProducts, type ProductQuery } from "@/lib/store-data";
 import { Pagination } from "@/components/shop/pagination";
 import { ProductCard } from "@/components/shop/product-card";
 import { ShopFilters } from "@/components/shop/shop-filters";
 
 export const dynamic = "force-dynamic";
 
-type Params = { category?: string; q?: string; sort?: string; size?: string; stock?: string; page?: string };
+type Params = {
+  category?: string;
+  q?: string;
+  sort?: string;
+  size?: string;
+  stock?: string;
+  gender?: string;
+  page?: string;
+};
 
 const sorts = ["featured", "new", "price-low", "price-high", "name"] as const;
 const PER_PAGE = 12;
@@ -26,22 +34,26 @@ export async function generateMetadata({
 
 export default async function ShopPage({ searchParams }: { searchParams: Promise<Params> }) {
   const sp = await searchParams;
-  const category = categories.slice(1).includes(sp.category as never) ? sp.category : undefined;
+  const [catList, sizeList] = await Promise.all([getCategories(), allSizes()]);
+  const categories = ["All pieces", ...catList.map((c) => c.name)];
+  const category = categories.slice(1).includes(sp.category ?? "") ? sp.category : undefined;
+  const gender = sp.gender === "girls" || sp.gender === "boys" ? sp.gender : undefined;
   const sort = sorts.includes(sp.sort as never) ? (sp.sort as ProductQuery["sort"]) : "featured";
-  const size = (sizes as readonly string[]).includes(sp.size ?? "") ? sp.size : undefined;
+  const size = sizeList.includes(sp.size ?? "") ? sp.size : undefined;
   const q = sp.q?.trim().slice(0, 80) || undefined;
   const page = Math.max(1, Number.parseInt(sp.page ?? "1", 10) || 1);
 
   const result = await queryProducts({
     category,
     q,
+    gender,
     sort,
     size,
     inStock: sp.stock === "1",
     page,
     perPage: PER_PAGE,
   });
-  const params = { category, q, sort: sort === "featured" ? undefined : sort, size, stock: sp.stock };
+  const params = { category, q, gender, sort: sort === "featured" ? undefined : sort, size, stock: sp.stock };
   // Past the last page (e.g. after filtering): go to the last real page.
   if (result.total > 0 && page > result.pages) {
     const qs = new URLSearchParams(Object.entries(params).filter(([, v]) => v) as [string, string][]);
@@ -81,7 +93,15 @@ export default async function ShopPage({ searchParams }: { searchParams: Promise
         })}
       </div>
 
-      <ShopFilters category={category} q={q} sort={sort ?? "featured"} size={size} stock={sp.stock === "1"} />
+      <ShopFilters
+        category={category}
+        q={q}
+        gender={gender}
+        sort={sort ?? "featured"}
+        size={size}
+        sizes={sizeList}
+        stock={sp.stock === "1"}
+      />
 
       {result.products.length ? (
         <div className="product-grid">

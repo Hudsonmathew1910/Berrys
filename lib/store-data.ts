@@ -1,60 +1,65 @@
 import "server-only";
-import { and, asc, desc, eq, ilike, inArray, ne, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, ilike, inArray, ne, or, sql, type SQL } from "drizzle-orm";
 import { getDb, schema } from "@/db";
-import type { Viewer } from "@/lib/auth";
-import { HttpError } from "@/lib/http-error";
-import { seedProducts, sizes, type Product } from "@/lib/catalog";
 import type { OrderStatus } from "@/db/schema";
-import type { ProductInput } from "@/lib/validation";
+import { DEFAULT_SIZES, type Product } from "@/lib/catalog";
+import { activeOffers, bestPrice } from "@/lib/offers";
 
-const { products, inventory, orders, orderItems, admins } = schema;
+const { products, inventory, orders, orderItems, categories } = schema;
 
 /** Statuses that count as real sales in analytics. */
 export const soldStatuses: OrderStatus[] = ["paid", "packed", "shipped", "delivered"];
 
-type ProductRow = typeof products.$inferSelect;
+export type ProductRow = typeof products.$inferSelect;
 
-/** Attaches per-size stock to product rows (one inventory query for the whole set). */
-async function withStock(rows: ProductRow[]): Promise<Product[]> {
+/**
+ * Turns product rows into storefront products: per-size stock (in the
+ * category's size order) and today's price after offers.
+ */
+export async function hydrateProducts(rows: ProductRow[]): Promise<Product[]> {
   if (!rows.length) return [];
-  const stock = await getDb()
-    .select()
-    .from(inventory)
-    .where(
-      inArray(
-        inventory.productId,
-        rows.map((r) => r.id),
-      ),
-    );
-  return rows.map((p) => ({
-    id: p.id,
-    name: p.name,
-    category: p.category,
-    price: p.price,
-    originalPrice: p.originalPrice,
-    description: p.description,
-    image: p.image,
-    badge: p.badge,
-    color: p.color,
-    stock: Object.fromEntries(
-      sizes.map((s) => [s, stock.find((v) => v.productId === p.id && v.size === s)?.quantity ?? 0]),
-    ),
-  }));
-}
-
-/** Every active product (admin workspace). */
-export async function listProducts(): Promise<Product[]> {
-  const rows = await getDb()
-    .select()
-    .from(products)
-    .where(eq(products.active, true))
-    .orderBy(products.createdAt, products.id);
-  return withStock(rows);
+  const db = getDb();
+  const ids = rows.map((r) => r.id);
+  const names = [...new Set(rows.map((r) => r.category))];
+  const [stock, cats, offers] = await Promise.all([
+    db.select().from(inventory).where(inArray(inventory.productId, ids)),
+    db
+      .select({ name: categories.name, sizes: categories.sizes })
+      .from(categories)
+      .where(inArray(categories.name, names)),
+    activeOffers(),
+  ]);
+  return rows.map((p) => {
+    const own = stock.filter((v) => v.productId === p.id);
+    const catSizes = cats.find((c) => c.name === p.category)?.sizes ?? DEFAULT_SIZES;
+    // Category sizes first, then any older sizes that still hold stock.
+    const sizes = [...catSizes, ...own.map((v) => v.size).filter((s) => !catSizes.includes(s))];
+    const { price, offer } = bestPrice(p, offers);
+    return {
+      id: p.id,
+      name: p.name,
+      category: p.category,
+      gender: p.gender,
+      tags: p.tags,
+      price,
+      basePrice: p.price,
+      originalPrice: Math.max(p.originalPrice, p.price),
+      offer,
+      description: p.description,
+      image: p.image,
+      images: p.images.length ? p.images : [p.image],
+      badge: p.badge,
+      color: p.color,
+      sizes,
+      stock: Object.fromEntries(sizes.map((s) => [s, own.find((v) => v.size === s)?.quantity ?? 0])),
+    };
+  });
 }
 
 export type ProductQuery = {
   category?: string;
   q?: string;
+  gender?: string;
   sort?: "featured" | "price-low" | "price-high" | "name" | "new";
   size?: string;
   inStock?: boolean;
@@ -69,13 +74,22 @@ export async function queryProducts(q: ProductQuery) {
   const page = Math.max(q.page ?? 1, 1);
   const where: SQL[] = [eq(products.active, true)];
   if (q.category) where.push(eq(products.category, q.category));
+  if (q.gender === "girls" || q.gender === "boys") {
+    where.push(or(eq(products.gender, q.gender), eq(products.gender, "unisex"))!);
+  }
   if (q.q) {
     // Escape LIKE wildcards so a search for "50%" matches literally.
     const term = q.q.replace(/[\\%_]/g, (c) => "\\" + c);
-    where.push(ilike(products.name, `%${term}%`));
+    where.push(
+      or(
+        ilike(products.name, `%${term}%`),
+        ilike(products.category, `%${term}%`),
+        sql`exists (select 1 from unnest(${products.tags}) t where t ilike ${"%" + term + "%"})`,
+      )!,
+    );
   }
   if (q.ids) where.push(q.ids.length ? inArray(products.id, q.ids) : sql`false`);
-  if (q.size && (sizes as readonly string[]).includes(q.size)) {
+  if (q.size) {
     where.push(
       sql`exists (select 1 from ${inventory} v where v.product_id = ${products.id} and v.size = ${q.size} and v.quantity > 0)`,
     );
@@ -107,7 +121,7 @@ export async function queryProducts(q: ProductQuery) {
       .offset((page - 1) * perPage),
   ]);
   return {
-    products: await withStock(rows),
+    products: await hydrateProducts(rows),
     total,
     page,
     perPage,
@@ -121,7 +135,7 @@ export async function getProduct(id: string) {
     .from(products)
     .where(and(eq(products.id, id), eq(products.active, true)))
     .limit(1);
-  return (await withStock(rows))[0] ?? null;
+  return (await hydrateProducts(rows))[0] ?? null;
 }
 
 export async function relatedProducts(p: Product, limit = 4) {
@@ -131,7 +145,17 @@ export async function relatedProducts(p: Product, limit = 4) {
     .where(and(eq(products.active, true), eq(products.category, p.category), ne(products.id, p.id)))
     .orderBy(desc(products.createdAt))
     .limit(limit);
-  return withStock(rows);
+  return hydrateProducts(rows);
+}
+
+/** Every size used in the catalogue (for the shop size filter). */
+export async function allSizes() {
+  const rows = await getDb()
+    .select({ sizes: categories.sizes })
+    .from(categories)
+    .where(eq(categories.active, true))
+    .orderBy(asc(categories.sortOrder));
+  return [...new Set(rows.flatMap((r) => r.sizes))];
 }
 
 /** Product counts per category, for navigation. */
@@ -142,84 +166,6 @@ export async function categoryCounts() {
     .where(eq(products.active, true))
     .groupBy(products.category);
   return Object.fromEntries(rows.map((r) => [r.category, r.count])) as Record<string, number>;
-}
-
-export async function saveProduct(input: ProductInput) {
-  const id = input.id || "berry-" + crypto.randomUUID();
-  await getDb().transaction(async (tx) => {
-    const values = {
-      name: input.name,
-      category: input.category,
-      price: input.price,
-      originalPrice: input.originalPrice,
-      description: input.description,
-      image: input.image,
-      badge: input.badge.trim().toUpperCase(),
-      color: input.color,
-      active: true,
-      updatedAt: new Date(),
-    };
-    await tx
-      .insert(products)
-      .values({ id, ...values })
-      .onConflictDoUpdate({ target: products.id, set: values });
-    for (const size of sizes) {
-      await tx
-        .insert(inventory)
-        .values({ productId: id, size, quantity: input.stock[size] })
-        .onConflictDoUpdate({
-          target: [inventory.productId, inventory.size],
-          set: { quantity: input.stock[size] },
-        });
-    }
-  });
-  return id;
-}
-
-/** Soft delete: hides the product but keeps order history intact. */
-export async function deactivateProduct(id: string) {
-  await getDb().update(products).set({ active: false, updatedAt: new Date() }).where(eq(products.id, id));
-}
-
-/**
- * One-time owner setup: registers the first admin and loads the sample
- * catalogue. An advisory lock stops two simultaneous setup requests racing.
- */
-export async function setupOwner(viewer: NonNullable<Viewer>) {
-  await getDb().transaction(async (tx) => {
-    await tx.execute(sql`select pg_advisory_xact_lock(4242)`);
-    const existing = await tx.select({ id: admins.userId }).from(admins).limit(1);
-    if (existing.length) throw new HttpError(409, "The owner has already been registered.");
-    await tx.insert(admins).values({ userId: viewer.userId, email: viewer.email ?? "" });
-    const [{ count }] = await tx.select({ count: sql<number>`count(*)::int` }).from(products);
-    if (count > 0) return; // keep any catalogue that already exists
-    for (const p of seedProducts) {
-      const { stock, ...product } = p;
-      await tx.insert(products).values(product);
-      await tx
-        .insert(inventory)
-        .values(sizes.map((size) => ({ productId: p.id, size, quantity: stock[size] })));
-    }
-  });
-}
-
-export async function adminOverview() {
-  const db = getDb();
-  const [recentOrders, ranking] = await Promise.all([
-    db.select().from(orders).orderBy(desc(orders.createdAt)).limit(100),
-    db
-      .select({
-        category: orderItems.category,
-        units: sql<number>`sum(${orderItems.quantity})::int`,
-        revenue: sql<number>`sum(${orderItems.quantity} * ${orderItems.price})::int`,
-      })
-      .from(orderItems)
-      .innerJoin(orders, eq(orders.id, orderItems.orderId))
-      .where(inArray(orders.status, soldStatuses))
-      .groupBy(orderItems.category)
-      .orderBy(desc(sql`sum(${orderItems.quantity})`)),
-  ]);
-  return { orders: recentOrders, ranking };
 }
 
 export async function ordersForUser(userId: string) {
@@ -244,15 +190,15 @@ export async function ordersForUser(userId: string) {
   return list.map((o) => ({ ...o, items: items.filter((i) => i.orderId === o.id) }));
 }
 
-/** One order, only if it belongs to this account. */
-export async function orderForUser(userId: string, orderId: string) {
+/** One order with item photos (optionally only if it belongs to this account). */
+export async function orderWithItems(orderId: string, userId?: string) {
   const db = getDb();
   const [order] = await db
     .select()
     .from(orders)
-    .where(and(eq(orders.id, orderId), eq(orders.userId, userId)))
+    .where(and(eq(orders.id, orderId), userId ? eq(orders.userId, userId) : undefined))
     .limit(1);
-  if (!order || order.status === "pending_payment") return null;
+  if (!order) return null;
   const items = await db.select().from(orderItems).where(eq(orderItems.orderId, order.id));
   const images = items.length
     ? await db
@@ -271,33 +217,8 @@ export async function orderForUser(userId: string, orderId: string) {
   };
 }
 
-/** Fulfilment steps the admin can move a paid order through. */
-const fulfilmentFlow: Partial<Record<OrderStatus, OrderStatus[]>> = {
-  paid: ["packed", "shipped", "delivered"],
-  packed: ["shipped", "delivered"],
-  shipped: ["delivered"],
-  needs_refund: ["cancelled"],
-};
-
-export async function updateOrderStatus(id: string, next: OrderStatus) {
-  const db = getDb();
-  const [order] = await db.select().from(orders).where(eq(orders.id, id)).limit(1);
-  if (!order) throw new HttpError(404, "Order not found.");
-  if (!fulfilmentFlow[order.status]?.includes(next)) {
-    throw new HttpError(400, `An order that is ${order.status.replace("_", " ")} cannot move to ${next}.`);
-  }
-  const now = new Date();
-  await db
-    .update(orders)
-    .set({
-      status: next,
-      ...(next === "packed" && { packedAt: now }),
-      ...(next === "shipped" && { shippedAt: now, packedAt: order.packedAt ?? now }),
-      ...(next === "delivered" && {
-        deliveredAt: now,
-        shippedAt: order.shippedAt ?? now,
-        packedAt: order.packedAt ?? now,
-      }),
-    })
-    .where(and(eq(orders.id, id), eq(orders.status, order.status)));
+/** A customer's own order (hidden while still awaiting payment). */
+export async function orderForUser(userId: string, orderId: string) {
+  const order = await orderWithItems(orderId, userId);
+  return order && order.status !== "pending_payment" ? order : null;
 }

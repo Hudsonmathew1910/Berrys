@@ -3,7 +3,7 @@ import { and, eq, ne, or } from "drizzle-orm";
 import { getDb, schema, type Tx } from "@/db";
 import { HttpError } from "@/lib/http-error";
 
-const { users, sessions, orders, admins } = schema;
+const { users, sessions, orders, addresses } = schema;
 
 export type User = typeof users.$inferSelect;
 
@@ -18,18 +18,13 @@ export type GoogleProfile = {
 export const isComplete = (u: Pick<User, "googleSub" | "phone">) => !!(u.googleSub && u.phone);
 
 /**
- * Folds `drop` into `keep`: moves its orders and admin rights across, deletes
+ * Folds `drop` into `keep`: moves its orders and addresses across, deletes
  * it, then applies `patch` (the identity fields keep is taking over).
  * Deleting first frees the unique email/phone/google values for `keep`.
  */
 async function mergeInto(tx: Tx, keep: User, drop: User, patch: Partial<User>) {
   await tx.update(orders).set({ userId: keep.id }).where(eq(orders.userId, drop.id));
-  const [keepAdmin] = await tx.select().from(admins).where(eq(admins.userId, keep.id));
-  const [dropAdmin] = await tx.select().from(admins).where(eq(admins.userId, drop.id));
-  if (dropAdmin && !keepAdmin) {
-    await tx.delete(admins).where(eq(admins.userId, drop.id));
-    await tx.insert(admins).values({ userId: keep.id, email: dropAdmin.email });
-  }
+  await tx.update(addresses).set({ userId: keep.id, isDefault: false }).where(eq(addresses.userId, drop.id));
   await tx.delete(sessions).where(eq(sessions.userId, drop.id));
   await tx.delete(users).where(eq(users.id, drop.id));
   const [updated] = await tx.update(users).set(patch).where(eq(users.id, keep.id)).returning();
