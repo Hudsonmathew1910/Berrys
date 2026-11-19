@@ -1,135 +1,140 @@
-# vinext-starter
+# Berry’s storefront
 
-A clean full-stack starter running on [vinext](https://github.com/cloudflare/vinext), with optional Cloudflare D1 and Drizzle support.
+An online store for Berry’s children’s clothing: a storefront with search, filters, favourites and a bag; Razorpay checkout; customer order history; and an admin workspace for products, per-size stock, orders and sales insights.
 
-## Prerequisites
+## Stack
 
-- Node.js `>=22.13.0`
-- Portable: Windows, macOS, or Linux; no Bash required
-- Managed Linux: managed Linux runtime with Bash, `flock`, `curl`, `sha256sum`, and GNU `timeout`
-- Git and `tar` (including Windows `tar.exe`) are required for publishing; portable publication does not require Bash
+| Layer     | Choice                                                                          |
+| --------- | ------------------------------------------------------------------------------- |
+| Framework | Next.js 16 (App Router), React 19, TypeScript                                   |
+| Database  | Supabase Postgres, accessed with Drizzle ORM (`db/`, migrations in `drizzle/`)  |
+| Auth      | Own accounts: Google login + mobile OTP, linked to one account (`lib/users.ts`) |
+| Images    | Supabase Storage, public `product-images` bucket                                |
+| Payments  | Razorpay Standard Checkout + webhook                                            |
+| SMS OTP   | Pluggable: dev (terminal), Twilio Verify or MSG91 (`lib/sms.ts`)                |
+| Email     | Resend (optional) for order confirmation emails to customers                    |
+| Styling   | Hand-written CSS in `app/globals.css`, Tailwind 4 + shadcn/ui available         |
 
-## Sites Lifecycle
+## First-time setup
 
-The Sites initializer copies the shared starter and selects managed-linux only when `SITES_MANAGED_LINUX_CONTAINER=1`; otherwise it selects portable. It saves the selection only in ignored `.sites-runtime/execution-profile.json`. Both profiles copy/configure first, then use the plugin's separate `install-dependencies.mjs` step to measure installation independently. Edit source under `app/` and follow the Sites skill for installation, preview, builds, and publishing.
+1. **Node.js 22.13+** and `npm install`.
+2. **Supabase:** create a project at supabase.com (used for the database and photo storage only).
+3. **Google login:** see _Login_ below.
+4. **Payments:** either create a Razorpay account and generate **test mode** API keys, or set `PAYMENT_MODE=mock` to simulate payments locally without any Razorpay account (dev server only).
+5. `cp .env.example .env` and fill it in (comments explain each value).
+6. `npm run db:migrate` creates the tables and the storage bucket.
+7. `npm run dev` and open http://localhost:3000.
 
-Run `node <plugin-root>/scripts/configure-execution-profile.mjs` only when the profile is unknown for the current checkout and environment. Profile changes do not alter tracked source or require reinstalling otherwise-valid dependencies; restart an existing preview to use the new selection. Do not commit or upload `.sites-runtime/`.
+### Becoming the store admin
 
-This starter does not use `wrangler.jsonc`.
+Set `STORE_OWNER_EMAIL` to your Google email, open `/admin`, log in with that Google account, verify your mobile number, then click **Set up my owner account**. This registers you as admin and loads the sample catalogue. It only works once, and only for that email.
 
-Publish archives outside the source checkout or under its ignored `outputs/` directory. Local `.env*`, `.dev.vars*`, TypeScript build state, and tool runtime directories are ignored; keep the hosting manifest, migrations, and authored scripts in source control.
+Until then the storefront shows the sample catalogue as a read-only preview, with checkout switched off.
 
-`install:ci` runs `npm ci` once against the shared lockfile, disables parent-workspace discovery, and includes required dev/optional dependencies despite production/omit settings. Sharp defaults to prebuilt binaries unless explicitly configured otherwise. Do not overlap installers.
+## Login
 
-- **Portable:** Preserve host HOME, npm cache, registry, proxy, temporary paths, retry/concurrency settings, and lifecycle-script policy. Use `--prefer-offline --no-audit --no-fund`.
-- **Managed Linux:** Use the existing project-local HOME/cache/tmp setup and Linux install lock, tarball preflight, and timeout. Restore the image-seeded npm cache only when its lockfile hash matches; retain network fallback. Builds keep their existing timeout. These helpers are not invoked by the portable profile.
+There is one **Login / sign up** page (`/login`). New visitors get an account automatically.
 
-`scripts/sites-env.mjs` preserves the caller's HOME, npm cache, proxy, XDG, and temporary-directory configuration while defaulting Wrangler and Miniflare state to the checkout. If npm reports an unwritable cache, select a writable path with `npm_config_cache` for that install. The `dev` and `start` scripts also keep Wrangler logs inside the checkout. Generated `.sites-runtime/` and `.wrangler/` directories are disposable and ignored by Git.
+- **Continue with Google** or **mobile number + SMS code**, whichever the customer prefers.
+- Every account links **both**: after the first method, the page asks for the other one (link Google, or verify the mobile number). From then on either one logs into the same account.
+- If someone had made two half-accounts (one with Google, one with the number), linking merges them, keeping all orders.
+- A number or Google account that already belongs to a different complete account can’t be linked.
+- Sessions are random tokens in an `httpOnly` cookie (30 days); only a SHA-256 hash is stored in the `sessions` table.
 
-On portable, `npm run dev` uses `vinext dev` with HMR, starting at port 5173. Vinext records the running server in ignored `.vinext/` state, rejects an ordinary duplicate launch, and recovers stale state after a stopped process; exactly simultaneous starts can race. Pass `--port <port>` or `--hostname <host>` after `npm run dev --` when needed; keep portable previews on loopback.
+### Google login setup (free)
 
-For managed Linux browser QA, follow the Sites skill's managed preview reference. The daemon runs the project's Vite dev script with `--host 0.0.0.0 --port 4173 --strictPort`; use the CLI's returned URL. The ignored local profile survives the daemon's cleared environment.
+1. [Google Cloud Console](https://console.cloud.google.com/) → create a project → **Google Auth Platform / OAuth consent screen**: app name `Berry’s`, support email, audience **External**.
+2. **Clients → Create client** → _Web application_:
+   - Authorized JavaScript origins: `http://localhost:3000` (and the live domain later).
+   - Authorized redirect URIs: `http://localhost:3000/auth/google/callback` (and `https://<domain>/auth/google/callback` later).
+3. Copy the Client ID and Client secret into `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`, set `SITE_URL`, restart `npm run dev`.
+4. While the app is in **Testing**, only the test users you add on the consent screen can log in (up to 100). Click **Publish app** to let anyone log in. The app only asks for basic profile/email, which doesn’t need Google’s verification review.
 
-The portable profile simulates ChatGPT sign-in only for loopback development requests. Visit `/signin-with-chatgpt?return_to=/` to sign in as `local_seedy` (`seedy@sites.test`, display name `Seedy`) and `/signout-with-chatgpt?return_to=/` to sign out. The development cookie preserves that identity across server restarts. Mock auth is disabled in the managed-linux profile and is not included in production builds; hosted authentication remains dispatch-owned.
+Google login has no per-login cost.
 
-The Worker uses `vinext/server/fetch-handler`, including Vinext's config-aware image handling. After building, `npm start` runs that Worker locally through Wrangler on `127.0.0.1`, sharing `.wrangler/state` with dev preview and local D1 migrations; it does not deploy the site or simulate sign-in. Use the URL printed by the server. Pass `npm start -- --port <port>` to select a different built-preview port.
+### Mobile OTP providers
 
-Local previews use Miniflare's placeholder `Request.cf` metadata without a network lookup. Set `CLOUDFLARE_CF_FETCH_ENABLED=true` to opt into fetching preview metadata; this setting does not change hosted request metadata.
+| `SMS_PROVIDER` | Use            | Notes                                                                                                                                      |
+| -------------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `dev`          | Local testing  | No SMS sent; the code prints in the `npm run dev` terminal. Free. Refused in production.                                                   |
+| `twilio`       | Launch         | Twilio Verify. Create a Verify service; set `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_VERIFY_SERVICE_SID`. Paid per verification. |
+| `msg91`        | Launch (India) | Cheaper per SMS, but needs DLT registration (business documents) and an approved OTP template; set `MSG91_AUTH_KEY`, `MSG91_TEMPLATE_ID`.  |
 
-Local tool usage metrics are disabled by default. Set `WRANGLER_SEND_METRICS=true` to opt in.
+SMS always costs money in India, and OTP endpoints are a target for “SMS pumping” fraud, so sending is rate-limited per IP and per number (3 per 15 min, 8 per day per number).
 
-## Included Shape
+## How checkout works
 
-- edit site code under `app/`
-- `app/chatgpt-auth.ts` provides optional dispatch-owned ChatGPT sign-in helpers
-- `.openai/hosting.json` declares optional Sites D1 and R2 bindings
-- `vite.config.ts` simulates declared bindings for local development
-- `worker/index.ts` is the production Worker entrypoint and preserves request-scoped connector bindings
-- `scripts/vite/` contains the maintained Vite integrations and the vendored Sites plugin license
-- `scripts/connector-preview/` contains the local connector preview Worker and session helpers
-- the remaining `scripts/` files select execution profiles and run installation, development, and builds; the plugin's helpers orchestrate the Sites lifecycle
-- `dist/` contains generated deployment output; `.vinext/`, `.wrangler/`, and `.sites-runtime/` contain ignored local tool state
-- `db/index.ts` reads the D1 binding from the Cloudflare Worker environment
-- `db/schema.ts` starts intentionally empty
-- `@cloudflare/workers-types` provides Worker types; `cloudflare-env.d.ts` declares optional `DB`/`BUCKET` bindings—update these declarations if binding names change
-- `examples/d1/` contains an optional D1 example surface
-- `drizzle.config.ts` supports local migration generation when needed
+1. The customer fills in name, email, mobile, address and PIN in the bag.
+2. `POST /api/checkout` re-prices the bag from the database, **reserves the stock** in one transaction (no overselling), saves a `pending_payment` order and creates a Razorpay order.
+3. The Razorpay window opens. On success the browser posts to `/api/checkout/verify`, which checks the HMAC signature and marks the order `paid`.
+4. The Razorpay **webhook** (`/api/webhooks/razorpay`) does the same server-to-server, so the order is confirmed even if the customer closes the tab. Both paths are idempotent.
+5. If the customer closes the payment window, or doesn’t pay within 30 minutes, the stock is released automatically.
+6. If a payment arrives after the stock was released, the app re-reserves it. If it has sold out meanwhile, the order is marked **Refund needed** in the admin so you can refund it from the Razorpay dashboard.
 
-## Workspace Auth Headers
+Paid orders move through _Packed → Shipped → Delivered_ from the admin **Orders** tab.
 
-Signed-in visitors receive both `oai-authenticated-user-id` and `oai-authenticated-user-email`. Private Sites require every visitor to sign in; public Sites may also have anonymous visitors, for whom neither header is present.
+**Mock payments (`PAYMENT_MODE=mock`)** replace step 3 with a simple “simulate payment?” prompt, so the whole order flow (stock, orders, admin, analytics) can be tested without a Razorpay account. It is hard-disabled in production builds.
 
-The user ID is stable for the same user on the same Site and different across Sites. Use it as the durable user key; use email and name for display or contact purposes.
+## Project layout
 
-SIWC-authenticated workspace sites may also receive `oai-authenticated-user-full-name` when the user's SIWC profile has a non-empty `name` claim. The full-name value is percent-encoded UTF-8 and is accompanied by `oai-authenticated-user-full-name-encoding: percent-encoded-utf-8`.
-
-Treat the full name as optional and fall back to email when it is absent:
-
-```tsx
-import { headers } from "next/headers";
-
-export default async function Home() {
-  const requestHeaders = await headers();
-  const userId = requestHeaders.get("oai-authenticated-user-id");
-  const email = requestHeaders.get("oai-authenticated-user-email");
-  const encodedFullName = requestHeaders.get("oai-authenticated-user-full-name");
-  const fullName =
-    encodedFullName &&
-    requestHeaders.get("oai-authenticated-user-full-name-encoding") ===
-      "percent-encoded-utf-8"
-      ? decodeURIComponent(encodedFullName)
-      : null;
-
-  const displayName = fullName ?? email;
-  // ...
-}
+```
+app/
+  page.tsx, admin/, login/, account/   pages
+  api/store                            public catalogue + who is signed in
+  api/checkout{,/verify,/cancel}       payment flow (+ /mock-pay, dev only)
+  api/webhooks/razorpay                Razorpay webhook
+  api/admin/*                          admin-only: setup, products, upload, orders, overview
+  auth/google{,/callback}, auth/signout  Google login + logout
+  api/auth/otp/{send,verify}           mobile OTP login / linking
+components/store/                      storefront UI (header, grid, product modal, bag/checkout…)
+components/admin/                      admin workspace UI
+components/ui/                         shadcn/ui kit (vendored)
+lib/                                   server logic: orders, store-data, auth, users, session, google, sms, razorpay, email, validation
+db/schema.ts                           database schema (Drizzle)
+drizzle/                               SQL migrations
 ```
 
-## Optional Dispatch-Owned ChatGPT Sign-In
+## Scripts
 
-Import the ready-to-use helpers from `app/chatgpt-auth.ts` when the site needs optional or required ChatGPT sign-in:
+| Command               | What it does                               |
+| --------------------- | ------------------------------------------ |
+| `npm run dev`         | Dev server on http://localhost:3000        |
+| `npm run build`       | Production build                           |
+| `npm start`           | Run the production build                   |
+| `npm run lint`        | ESLint                                     |
+| `npm run typecheck`   | TypeScript check                           |
+| `npm run format`      | Prettier                                   |
+| `npm run db:generate` | New migration after editing `db/schema.ts` |
+| `npm run db:migrate`  | Apply migrations (uses `DIRECT_URL`)       |
+| `npm run db:studio`   | Browse the database                        |
 
-- Use `getChatGPTUser()` for optional signed-in UI.
-- Use the returned `userId` as the stable user key for user-owned records; do not use email as a durable identifier.
-- Use `requireChatGPTUser(returnTo)` for server-rendered pages that should send anonymous visitors through Sign in with ChatGPT.
-- In a Server Component, start sign-in with `<a href={chatGPTSignInPath(returnTo)} target="_top">`. The auth helper module is server-only; do not import it into a Client Component.
-- Do not use `fetch`, XHR, a client-side router, or a framework link that can prefetch the sign-in route. SIWC must start as a top-level navigation.
-- Never request the AuthAPI authorization endpoint directly. The dispatch-owned `/signin-with-chatgpt` route must start the SIWC flow.
-- Use `chatGPTSignOutPath(returnTo)` for browser sign-out links or actions.
-- Pass a same-origin relative `returnTo` path for the destination after sign-in or sign-out. The helper validates and safely encodes it.
-- Mark protected pages with `export const dynamic = "force-dynamic"` because they depend on per-request identity headers.
+## Security notes
 
-Dispatch owns `/signin-with-chatgpt`, `/signout-with-chatgpt`, `/callback`, the OAuth cookies, and identity header injection. Do not implement app routes for those reserved paths. Routes that do not import and call the helper remain anonymous-compatible.
+- **Security headers:** a strict Content-Security-Policy (scripts, frames and API calls only from this site, Supabase and Razorpay), HSTS, no framing, nosniff, and a locked-down Permissions-Policy (`next.config.ts`).
+- **Rate limits** (Postgres-backed, shared across server instances): checkout 10 per 10 min per IP; payment verify/cancel 30 per 10 min per IP; photo uploads 60 per hour per admin. A shopper can hold at most 2 unpaid checkouts, so stock can’t be locked up by fake orders. Login is limited too: Google starts 30 per 10 min per IP; OTP sends 5 per 15 min per IP and 3 per 15 min per number; OTP checks 6 per 15 min per number, and each code locks after 5 wrong tries.
+- **Uploads** are checked by their actual file bytes (JPEG/PNG/WebP only, 5 MB max), not the file name or claimed type.
+- Search engines are told not to index `/admin`, `/account`, `/login` and the API.
+- Every table has Row Level Security on with **no policies**, so the public Supabase API key cannot read or write store data. All access goes through this app’s server routes, which validate input (zod) and check admin rights.
+- Prices and totals are always computed on the server.
+- Mutating routes reject cross-origin requests. Razorpay payments and webhooks are verified with HMAC signatures.
+- Run `npm audit --omit=dev` regularly and keep Next.js patched; security fixes ship often.
+- Keep `SUPABASE_SERVICE_ROLE_KEY`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET` and `DATABASE_URL` server-side only.
 
-SIWC establishes identity only; it does not prove workspace membership. Use the Sites hosting platform's access policy controls for workspace-wide restrictions, or enforce explicit server-side membership or allowlist checks.
+## Deploying (e.g. Vercel)
 
-Use SIWC for account pages, user-specific dashboards, saved records, and write actions tied to the current ChatGPT user. Leave public content anonymous.
+1. Import the repo and add every variable from `.env.example` (use `DATABASE_POOL_MAX=1` on serverless).
+2. Set `SITE_URL` to the live domain and add `https://<domain>/auth/google/callback` to the Google OAuth client. Set `SMS_PROVIDER` to `twilio` or `msg91` with its keys.
+3. In Razorpay, add the webhook `https://<domain>/api/webhooks/razorpay` with events `payment.captured` and `order.paid`.
+4. Run `npm run db:migrate` against production once.
 
-## Local D1 migrations
+## Before launch: still to do
 
-For a D1-backed local preview, generate SQL with `npm run db:generate`. Build once through the Sites skill's build entrypoint (or `npm run build` for standalone use) to generate `dist/server/wrangler.json`, rebuilding if bindings change. From the project root, apply each pending migration in order:
-
-```sh
-node --import ./scripts/sites-env.mjs ./node_modules/wrangler/bin/wrangler.js d1 execute DB --local --config dist/server/wrangler.json --persist-to .wrangler/state --file drizzle/0000_example.sql
-```
-
-Replace the filename with the pending migration and `DB` with your D1 binding name if different. Use `.wrangler/state`, not `.wrangler/state/v3`; Wrangler adds the versioned directories. Do not replay migrations already applied locally. This updates only the preview database; publishing applies production migrations separately.
-
-## Diagnostic Commands
-
-- `npm run install:ci`: perform the one locked dependency install
-- `npm run dev`: start the Vite/Vinext development server
-- `npm run build`: build the deployable Sites artifact
-- `npm run start`: preview the built Worker locally with D1/R2 support
-- `npm run db:generate`: generate Drizzle migrations after schema changes
-
-When using the Sites plugin, follow its skill instructions for installation, builds, and publishing. These npm commands remain available for standalone use.
-
-The portable build runs Vinext directly without a host `timeout` command. The managed-linux build uses `scripts/build-verified.sh` and its existing `SITES_BUILD_TIMEOUT` setting.
-
-## Learn More
-
-- [vinext Documentation](https://github.com/cloudflare/vinext)
-- [Drizzle D1 Guide](https://orm.drizzle.team/docs/get-started/d1-new)
-#   B e r r y s  
- 
+- **Replace product photos.** `public/images/product-*.webp` came from other stores’ websites and must not be used commercially.
+- Replace sample product names, prices and descriptions (`lib/catalog.ts` seed data, or edit them in the admin).
+- Write the real size guide, shipping & returns policy and contact details (`components/store/info-modal.tsx`), and add privacy/terms pages (Razorpay requires them for live activation).
+- Complete Razorpay KYC and switch to `rzp_live_` keys.
+- Set shipping fees if you charge them (`NEXT_PUBLIC_SHIPPING_FEE`, `NEXT_PUBLIC_FREE_SHIPPING_ABOVE`).
+- Publish the Google OAuth app and pick an SMS provider (`twilio` / `msg91`).
+- Set up a sending domain with Resend for order confirmation emails (`RESEND_API_KEY`).
+- Make sure `PAYMENT_MODE` is **not** set in production (it is ignored there anyway).
+- Optional next steps: courier integration (e.g. Shiprocket) for labels and tracking, refunds from the admin through the Razorpay API, CAPTCHA (e.g. Cloudflare Turnstile) on the mobile OTP form, product detail pages with their own URLs for SEO.

@@ -1,0 +1,7 @@
+.next
+node_modules
+drizzle
+package-lock.json
+# Vendored from the shadcn registry; keep upstream formatting.
+components/ui
+hooks/use-mobile.ts

@@ -1,8 +1,0 @@
-export const sizes=['S','M','L','XL'] as const;
-export type Product={id:string;name:string;category:string;price:number;originalPrice:number;description:string;image:string;badge:string;color:string;stock:Record<string,number>};
-export const categories=['All pieces','Co-ord sets','Tops & tees','Trousers','Dresses','Sleepwear'];
-const names=['Peach days co-ord set','Bonjour cotton co-ord','Hakuna relaxed set','Little explorer co-ord','Meadow cotton dress','Rust handloom set','Dino day shorts set','Giraffe dreams pyjamas','Midnight floral dress','Penguin play set','Sunshine oversized set','Pink roadtrip pyjamas'];
-const cats=['Co-ord sets','Co-ord sets','Co-ord sets','Co-ord sets','Dresses','Co-ord sets','Tops & tees','Sleepwear','Dresses','Tops & tees','Trousers','Sleepwear'];
-const colors=['#dba58d','#9d7b62','#a4ad8a','#a88969','#e0d9c6','#824d42','#99ab82','#9a806c','#393936','#a1b5c0','#d3bb72','#cf9fa8'];
-export const initialProducts:Product[]=names.map((name,i)=>({id:`berry-${i+1}`,name,category:cats[i],price:[699,749,649,799,899,849,599,699,849,599,749,699][i],originalPrice:[899,999,849,999,1199,1099,799,899,1099,799,999,899][i],description:'An easy-going favourite for play-filled days. A soft cotton feel, a relaxed fit, and all the room they need to be themselves. Sample collection — replace with your product specifications before launch.',image:`/images/product-${i+1}.webp`,badge:i===0?'NEW ARRIVAL':i===1?'LITTLE FAVOURITE':i===4?'JUST IN':'',color:colors[i],stock:i===3?{S:0,M:5,L:10,XL:4}:i===8?{S:0,M:0,L:0,XL:0}:{S:3,M:5,L:10,XL:4}}));
-export const money=(n:number)=>'₹'+n.toLocaleString('en-IN');

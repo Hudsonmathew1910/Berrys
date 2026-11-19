@@ -1,2 +1,5 @@
-import Store from './store';
-export default function Page(){return <Store/>}
+import Storefront from "@/components/store/storefront";
+
+export default function Page() {
+  return <Storefront />;
+}
