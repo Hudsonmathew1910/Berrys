@@ -26,7 +26,8 @@ if (!url) {
   process.exit(1);
 }
 
-const sql = postgres(url, { prepare: false, max: 1 });
+const local = /@(localhost|127.0.0.1)[:/]/.test(url);
+const sql = postgres(url, { prepare: false, max: 1, ssl: local ? false : "require" });
 try {
   const rows = await sql`
     update staff_members set password_hash = null where email = ${email}

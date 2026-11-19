@@ -1,3 +1,4 @@
+import sharp from "sharp";
 import { handleError, json, assertSameOrigin } from "@/lib/http";
 import { rateLimit } from "@/lib/rate-limit";
 import { requireAction } from "@/lib/staff";
@@ -33,9 +34,24 @@ export async function POST(request: Request) {
     const type = sniffImageType(bytes);
     if (!type) return json({ error: "That file isn’t a JPG, PNG or WebP image." }, 400);
 
-    const path = `products/${crypto.randomUUID()}.${type.ext}`;
+    // Re-encode: strips metadata (camera GPS etc.), neutralises crafted files,
+    // and resizes to a web-friendly WebP so pages load fast.
+    let webp: Buffer;
+    try {
+      webp = await sharp(bytes, { limitInputPixels: 50_000_000, failOn: "error" })
+        .rotate()
+        .resize({ width: 1600, height: 2000, fit: "inside", withoutEnlargement: true })
+        .webp({ quality: 82 })
+        .toBuffer();
+    } catch {
+      return json({ error: "That image couldn’t be read. Please try another file." }, 400);
+    }
+    const path = `products/${crypto.randomUUID()}.webp`;
     const storage = createSupabaseAdminClient().storage.from(BUCKET);
-    const { error } = await storage.upload(path, bytes, { contentType: type.mime, cacheControl: "31536000" });
+    const { error } = await storage.upload(path, webp, {
+      contentType: "image/webp",
+      cacheControl: "31536000",
+    });
     if (error) throw error;
     return json({ url: storage.getPublicUrl(path).data.publicUrl });
   } catch (e) {

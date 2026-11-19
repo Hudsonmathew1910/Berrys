@@ -3,6 +3,7 @@ import { getViewer } from "@/lib/auth";
 import { HttpError } from "@/lib/http-error";
 import { assertSameOrigin, handleError, json } from "@/lib/http";
 import { addressSchema } from "@/lib/validation";
+import { rateLimit } from "@/lib/rate-limit";
 
 export const dynamic = "force-dynamic";
 
@@ -25,6 +26,7 @@ export async function POST(request: Request) {
   try {
     assertSameOrigin(request);
     const viewer = await requireViewer();
+    await rateLimit("address-write", viewer.userId, 30, 10 * 60);
     const input = addressSchema.parse(await request.json());
     return json({ address: await saveAddress(viewer.userId, input) });
   } catch (e) {

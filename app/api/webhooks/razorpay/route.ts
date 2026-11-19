@@ -7,10 +7,16 @@ import { verifyWebhookSignature } from "@/lib/razorpay";
  * Subscribe to: payment.captured, order.paid
  * URL: https://<your-domain>/api/webhooks/razorpay
  */
+const MAX_BODY = 256 * 1024;
+
 export async function POST(request: Request) {
+  // Not set up yet (no Razorpay account): refuse cleanly.
+  if (!process.env.RAZORPAY_WEBHOOK_SECRET) return json({ error: "Webhook not configured" }, 503);
+  if (Number(request.headers.get("content-length") || 0) > MAX_BODY) return json({ error: "Too large" }, 413);
   const raw = await request.text();
+  if (raw.length > MAX_BODY) return json({ error: "Too large" }, 413);
   const signature = request.headers.get("x-razorpay-signature") || "";
-  if (!signature || !verifyWebhookSignature(raw, signature)) {
+  if (!/^[a-f0-9]{64}$/.test(signature) || !verifyWebhookSignature(raw, signature)) {
     return json({ error: "Invalid signature" }, 401);
   }
 

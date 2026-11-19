@@ -1,5 +1,6 @@
 import "server-only";
 import { eq } from "drizzle-orm";
+import { unstable_cache } from "next/cache";
 import { cache } from "react";
 import { getDb, schema } from "@/db";
 import { helpPages } from "@/lib/help-pages";
@@ -85,10 +86,21 @@ export const bannerFields = [
 ] as const;
 export type Content<K extends ContentKey> = (typeof contentDefaults)[K];
 
-const loadAll = cache(async () => {
-  const rows = await getDb().select().from(schema.siteContent);
-  return new Map(rows.map((r) => [r.key, r.value as Record<string, unknown>]));
-});
+/** Cache tag cleared by the dashboard whenever website content changes. */
+export const CONTENT_TAG = "site-content";
+
+const loadRows = unstable_cache(
+  async () =>
+    (
+      await getDb()
+        .select({ key: schema.siteContent.key, value: schema.siteContent.value })
+        .from(schema.siteContent)
+    ).map((r) => [r.key, r.value as Record<string, unknown>] as const),
+  ["site-content-v1"],
+  { tags: [CONTENT_TAG], revalidate: 600 },
+);
+
+const loadAll = cache(async () => new Map(await loadRows()));
 
 /** A content block, with defaults filled in for any missing field. */
 export async function getContent<K extends ContentKey>(key: K): Promise<Content<K>> {

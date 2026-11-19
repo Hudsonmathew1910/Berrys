@@ -71,35 +71,43 @@ export const categories = pgTable("categories", {
 export const genders = ["girls", "boys", "unisex"] as const;
 export type Gender = (typeof genders)[number];
 
-export const products = pgTable("products", {
-  id: text("id").primaryKey(),
-  name: text("name").notNull(),
-  category: text("category")
-    .notNull()
-    .references(() => categories.name, { onUpdate: "cascade", onDelete: "restrict" }),
-  gender: text("gender").$type<Gender>().notNull().default("unisex"),
-  /** Extra search keywords. */
-  tags: text("tags")
-    .array()
-    .notNull()
-    .default(sql`'{}'::text[]`),
-  /** Gallery (up to 6); `image` is always the first one. */
-  images: text("images")
-    .array()
-    .notNull()
-    .default(sql`'{}'::text[]`),
-  /** Selling price in whole rupees. */
-  price: integer("price").notNull(),
-  /** "Was" price in whole rupees, shown struck through. */
-  originalPrice: integer("original_price").notNull(),
-  description: text("description").notNull().default(""),
-  image: text("image").notNull(),
-  badge: text("badge").notNull().default(""),
-  color: text("color").notNull(),
-  active: boolean("active").notNull().default(true),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-}).enableRLS();
+export const products = pgTable(
+  "products",
+  {
+    id: text("id").primaryKey(),
+    name: text("name").notNull(),
+    category: text("category")
+      .notNull()
+      .references(() => categories.name, { onUpdate: "cascade", onDelete: "restrict" }),
+    gender: text("gender").$type<Gender>().notNull().default("unisex"),
+    /** Extra search keywords. */
+    tags: text("tags")
+      .array()
+      .notNull()
+      .default(sql`'{}'::text[]`),
+    /** Gallery (up to 6); `image` is always the first one. */
+    images: text("images")
+      .array()
+      .notNull()
+      .default(sql`'{}'::text[]`),
+    /** Selling price in whole rupees. */
+    price: integer("price").notNull(),
+    /** "Was" price in whole rupees, shown struck through. */
+    originalPrice: integer("original_price").notNull(),
+    description: text("description").notNull().default(""),
+    image: text("image").notNull(),
+    badge: text("badge").notNull().default(""),
+    color: text("color").notNull(),
+    active: boolean("active").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("products_active_category_idx").on(t.active, t.category),
+    index("products_created_idx").on(t.createdAt),
+    index("products_updated_idx").on(t.updatedAt),
+  ],
+).enableRLS();
 
 export const inventory = pgTable(
   "inventory",
@@ -174,6 +182,8 @@ export const orders = pgTable(
     index("orders_status_idx").on(t.status),
     index("orders_user_idx").on(t.userId),
     index("orders_created_idx").on(t.createdAt),
+    index("orders_paid_idx").on(t.paidAt),
+    index("orders_email_status_idx").on(t.email, t.status),
   ],
 ).enableRLS();
 
@@ -192,7 +202,7 @@ export const orderItems = pgTable(
     /** Unit price in rupees at the time of the order. */
     price: integer("price").notNull(),
   },
-  (t) => [index("order_items_order_idx").on(t.orderId)],
+  (t) => [index("order_items_order_idx").on(t.orderId), index("order_items_product_idx").on(t.productId)],
 ).enableRLS();
 
 /** Dashboard permissions that can be ticked per staff member. Admins have all of them. */
@@ -240,17 +250,21 @@ export const staffMembers = pgTable("staff_members", {
  * Unlocked dashboard sessions. Tied to the login session (logging out locks
  * the dashboard) and to a browser-session cookie (closing the browser locks it).
  */
-export const dashboardSessions = pgTable("dashboard_sessions", {
-  tokenHash: text("token_hash").primaryKey(),
-  staffId: uuid("staff_id")
-    .notNull()
-    .references(() => staffMembers.id, { onDelete: "cascade" }),
-  loginTokenHash: text("login_token_hash")
-    .notNull()
-    .references(() => sessions.tokenHash, { onDelete: "cascade" }),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
-}).enableRLS();
+export const dashboardSessions = pgTable(
+  "dashboard_sessions",
+  {
+    tokenHash: text("token_hash").primaryKey(),
+    staffId: uuid("staff_id")
+      .notNull()
+      .references(() => staffMembers.id, { onDelete: "cascade" }),
+    loginTokenHash: text("login_token_hash")
+      .notNull()
+      .references(() => sessions.tokenHash, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  },
+  (t) => [index("dashboard_sessions_staff_idx").on(t.staffId)],
+).enableRLS();
 
 /** Every stock change, so stock and sales can be traced. */
 export const stockMovements = pgTable(
@@ -271,6 +285,7 @@ export const stockMovements = pgTable(
   (t) => [
     index("stock_movements_product_idx").on(t.productId),
     index("stock_movements_created_idx").on(t.createdAt),
+    index("stock_movements_order_idx").on(t.orderId),
   ],
 ).enableRLS();
 
@@ -348,11 +363,15 @@ export const siteContent = pgTable("site_content", {
 }).enableRLS();
 
 /** Fixed-window request counters used by lib/rate-limit.ts (shared across server instances). */
-export const rateLimits = pgTable("rate_limits", {
-  key: text("key").primaryKey(),
-  windowStart: timestamp("window_start", { withTimezone: true }).notNull().defaultNow(),
-  count: integer("count").notNull().default(0),
-}).enableRLS();
+export const rateLimits = pgTable(
+  "rate_limits",
+  {
+    key: text("key").primaryKey(),
+    windowStart: timestamp("window_start", { withTimezone: true }).notNull().defaultNow(),
+    count: integer("count").notNull().default(0),
+  },
+  (t) => [index("rate_limits_window_idx").on(t.windowStart)],
+).enableRLS();
 
 /** Saved delivery addresses for an account. */
 export const addresses = pgTable(

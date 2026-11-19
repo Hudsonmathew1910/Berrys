@@ -57,6 +57,13 @@
       "when": 1795084135846,
       "tag": "0007_drop_admins",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1795088941811,
+      "tag": "0008_indexes_hardening",
+      "breakpoints": true
     }
   ]
 }

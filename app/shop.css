@@ -44,7 +44,7 @@
   line-height: 1;
 }
 .brand-word b {
-  font-family: Manrope, sans-serif;
+  font-family: var(--font-display), sans-serif;
   font-size: 22px;
   font-weight: 800;
   letter-spacing: 1px;
@@ -142,7 +142,7 @@ footer.site-footer {
   max-width: 820px;
 }
 .page-title {
-  font-family: Manrope, sans-serif;
+  font-family: var(--font-display), sans-serif;
   font-size: 30px;
   color: var(--navy);
   margin: 6px 0 22px;
@@ -167,7 +167,7 @@ footer.site-footer {
 }
 .section-heading h2,
 .collection-heading h1 {
-  font-family: Manrope, sans-serif;
+  font-family: var(--font-display), sans-serif;
   font-size: 30px;
   color: var(--navy);
   margin: 6px 0 0;
@@ -318,7 +318,7 @@ a.product-title {
   object-fit: cover;
 }
 .product-detail-info h1 {
-  font-family: Manrope, sans-serif;
+  font-family: var(--font-display), sans-serif;
   font-size: 32px;
   color: var(--navy);
   margin: 8px 0 14px;
@@ -1002,4 +1002,55 @@ a.account-order:hover {
   align-content: start;
   justify-items: center;
   background: var(--cream);
+}
+
+/* Loading skeletons */
+.skeleton {
+  background: linear-gradient(90deg, #efede6 25%, #f7f6f1 50%, #efede6 75%);
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.2s ease-in-out infinite;
+  border-radius: 4px;
+}
+.skeleton-title {
+  height: 32px;
+  width: 280px;
+  max-width: 70%;
+  margin-bottom: 22px;
+}
+.skeleton-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 24px;
+}
+.skeleton-card {
+  display: grid;
+  gap: 10px;
+}
+.skeleton-img {
+  aspect-ratio: 4 / 5;
+}
+.skeleton-line {
+  height: 12px;
+}
+.skeleton-line.short {
+  width: 50%;
+}
+.skeleton-stat {
+  height: 92px;
+}
+.skeleton-panel {
+  height: 320px;
+}
+@keyframes skeleton-shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .skeleton {
+    animation: none;
+  }
 }

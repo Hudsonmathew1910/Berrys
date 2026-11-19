@@ -1,5 +1,6 @@
 "use server";
-import { revalidatePath } from "next/cache";
+import { revalidatePath, updateTag } from "next/cache";
+import { OFFERS_TAG } from "@/lib/offers";
 import { headers } from "next/headers";
 import { z, ZodError } from "zod";
 import { getDb, schema } from "@/db";
@@ -8,9 +9,10 @@ import { orderStatuses, permissionKeys, type Permission } from "@/db/schema";
 import * as cat from "@/lib/admin/catalog";
 import * as ord from "@/lib/admin/orders";
 import * as team from "@/lib/admin/team";
-import { getCategories } from "@/lib/categories";
+import { CATEGORIES_TAG, getCategories } from "@/lib/categories";
 import {
   bannerFields,
+  CONTENT_TAG,
   contentDefaults,
   helpDefault,
   resetContent,
@@ -27,6 +29,7 @@ import {
   hashPassword,
   lockDashboard,
   logActivity,
+  needsRehash,
   passwordProblem,
   requireAction,
   unlockDashboard,
@@ -37,8 +40,12 @@ import { isAllowedImageUrl, productSchema } from "@/lib/validation";
 
 export type ActionResult = { ok?: string; error?: string; at?: number };
 
+/** After any dashboard change: refresh the dashboard and the shared shop caches. */
 const done = (ok: string): ActionResult => {
   revalidatePath(`/${adminPath()}`, "layout");
+  updateTag(CATEGORIES_TAG);
+  updateTag(CONTENT_TAG);
+  updateTag(OFFERS_TAG);
   return { ok, at: Date.now() };
 };
 
@@ -83,6 +90,13 @@ export async function unlockAction(_: ActionResult, f: FormData): Promise<Action
       if (!(await verifyPassword(password, staff.passwordHash))) {
         await logActivity(actorName(staff), "Failed dashboard unlock");
         return { error: "That password is incorrect." };
+      }
+      // Transparently upgrade hashes made with an older, weaker cost.
+      if (needsRehash(staff.passwordHash)) {
+        await getDb()
+          .update(schema.staffMembers)
+          .set({ passwordHash: await hashPassword(password) })
+          .where(eq(schema.staffMembers.id, staff.id));
       }
     }
     await unlockDashboard(staff.id);

@@ -3,9 +3,10 @@ import { and, asc, desc, eq, ilike, inArray, ne, or, sql, type SQL } from "drizz
 import { getDb, schema } from "@/db";
 import type { OrderStatus } from "@/db/schema";
 import { DEFAULT_SIZES, type Product } from "@/lib/catalog";
+import { getCategories } from "@/lib/categories";
 import { activeOffers, bestPrice } from "@/lib/offers";
 
-const { products, inventory, orders, orderItems, categories } = schema;
+const { products, inventory, orders, orderItems } = schema;
 
 /** Statuses that count as real sales in analytics. */
 export const soldStatuses: OrderStatus[] = ["paid", "packed", "shipped", "delivered"];
@@ -20,13 +21,9 @@ export async function hydrateProducts(rows: ProductRow[]): Promise<Product[]> {
   if (!rows.length) return [];
   const db = getDb();
   const ids = rows.map((r) => r.id);
-  const names = [...new Set(rows.map((r) => r.category))];
   const [stock, cats, offers] = await Promise.all([
     db.select().from(inventory).where(inArray(inventory.productId, ids)),
-    db
-      .select({ name: categories.name, sizes: categories.sizes })
-      .from(categories)
-      .where(inArray(categories.name, names)),
+    getCategories(false),
     activeOffers(),
   ]);
   return rows.map((p) => {
@@ -150,12 +147,7 @@ export async function relatedProducts(p: Product, limit = 4) {
 
 /** Every size used in the catalogue (for the shop size filter). */
 export async function allSizes() {
-  const rows = await getDb()
-    .select({ sizes: categories.sizes })
-    .from(categories)
-    .where(eq(categories.active, true))
-    .orderBy(asc(categories.sortOrder));
-  return [...new Set(rows.flatMap((r) => r.sizes))];
+  return [...new Set((await getCategories()).flatMap((c) => c.sizes))];
 }
 
 /** Product counts per category, for navigation. */
@@ -221,4 +213,27 @@ export async function orderWithItems(orderId: string, userId?: string) {
 export async function orderForUser(userId: string, orderId: string) {
   const order = await orderWithItems(orderId, userId);
   return order && order.status !== "pending_payment" ? order : null;
+}
+
+/** The cheapest active product in each category, in one query (home page banners & shortcuts). */
+export async function cheapestPerCategory() {
+  const rows = (await getDb().execute(sql`
+    select distinct on (${products.category}) ${products.id} as id
+    from ${products}
+    where ${products.active} = true
+    order by ${products.category}, ${products.price} asc, ${products.id} asc
+  `)) as unknown as { id: string }[];
+  if (!rows.length) return {} as Record<string, Product>;
+  const list = await hydrateProducts(
+    await getDb()
+      .select()
+      .from(products)
+      .where(
+        inArray(
+          products.id,
+          rows.map((r) => r.id),
+        ),
+      ),
+  );
+  return Object.fromEntries(list.map((p) => [p.category, p])) as Record<string, Product>;
 }

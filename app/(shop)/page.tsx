@@ -3,7 +3,7 @@ import { ArrowRight, ArrowUpRight, Package } from "lucide-react";
 import { money } from "@/lib/catalog";
 import { getCategories } from "@/lib/categories";
 import { getContent } from "@/lib/content";
-import { categoryCounts, queryProducts } from "@/lib/store-data";
+import { categoryCounts, cheapestPerCategory, queryProducts } from "@/lib/store-data";
 import { ProductCard } from "@/components/shop/product-card";
 
 export const dynamic = "force-dynamic";
@@ -18,12 +18,11 @@ export default async function HomePage() {
   ]);
   const cats = catList.map((c) => c.name);
   const categories = ["All pieces", ...cats];
-  const [newIn, counts, ...firsts] = await Promise.all([
+  const [newIn, counts, first] = await Promise.all([
     queryProducts({ sort: "new", perPage: 8 }),
     categoryCounts(),
-    ...cats.map((c) => queryProducts({ category: c, perPage: 1, sort: "price-low" })),
+    cheapestPerCategory(),
   ]);
-  const first = Object.fromEntries(cats.map((c, i) => [c, firsts[i].products[0]]));
   const total = Object.values(counts).reduce((a, n) => a + n, 0);
 
   // Featured banners (Dashboard → Website content). Blank category = the

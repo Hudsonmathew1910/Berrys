@@ -69,15 +69,38 @@ function limitConcurrency(client: postgres.Sql, max: number): postgres.Sql {
   });
 }
 
+/**
+ * Encrypt the database connection (TLS) unless it's a local database.
+ * Set DATABASE_CA_CERT (the Supabase CA certificate, PEM) to also verify
+ * the server's identity; otherwise traffic is encrypted without pinning.
+ */
+export function dbSsl(url: string): postgres.Options<Record<string, postgres.PostgresType>>["ssl"] {
+  const host = (() => {
+    try {
+      return new URL(url).hostname;
+    } catch {
+      return "";
+    }
+  })();
+  if (host === "localhost" || host === "127.0.0.1" || host === "::1") return false;
+  const ca = process.env.DATABASE_CA_CERT?.replace(/\\n/g, "\n");
+  return ca ? { ca, rejectUnauthorized: true } : "require";
+}
+
 export function getDb(): Db {
   if (!globalForDb.berrysDb) {
     const max = Number(process.env.DATABASE_POOL_MAX || 5);
-    const client = postgres(serverEnv.databaseUrl(), {
+    const url = serverEnv.databaseUrl();
+    const client = postgres(url, {
       // Supabase's transaction pooler (port 6543) does not support prepared statements.
       prepare: false,
       max,
+      ssl: dbSsl(url),
       // Fail fast instead of hanging if the database can't be reached.
       connect_timeout: 15,
+      // Recycle idle and long-lived connections (keeps memory and pooler slots low).
+      idle_timeout: 20,
+      max_lifetime: 60 * 30,
     });
     globalForDb.berrysDb = drizzle(limitConcurrency(client, max), { schema });
   }

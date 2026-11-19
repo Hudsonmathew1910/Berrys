@@ -3,6 +3,7 @@ import { getViewer } from "@/lib/auth";
 import { HttpError } from "@/lib/http-error";
 import { assertSameOrigin, handleError, json } from "@/lib/http";
 import { addressSchema } from "@/lib/validation";
+import { rateLimit } from "@/lib/rate-limit";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -16,6 +17,7 @@ export async function PUT(request: Request, { params }: Ctx) {
   try {
     assertSameOrigin(request);
     const viewer = await requireViewer();
+    await rateLimit("address-write", viewer.userId, 30, 10 * 60);
     const input = addressSchema.parse(await request.json());
     return json({ address: await saveAddress(viewer.userId, input, (await params).id) });
   } catch (e) {
@@ -27,6 +29,7 @@ export async function DELETE(request: Request, { params }: Ctx) {
   try {
     assertSameOrigin(request);
     const viewer = await requireViewer();
+    await rateLimit("address-write", viewer.userId, 30, 10 * 60);
     await deleteAddress(viewer.userId, (await params).id);
     return json({ ok: true });
   } catch (e) {

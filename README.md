@@ -139,21 +139,34 @@ public/images/berrys-logo-full.webp   footer logo · berrys-mark.webp header mar
 | `npm run db:migrate`  | Apply migrations (uses `DIRECT_URL`)       |
 | `npm run db:studio`   | Browse the database                        |
 
-## Security notes
+## Security
 
-- **Security headers:** a strict Content-Security-Policy (scripts, frames and API calls only from this site, Supabase and Razorpay), HSTS, no framing, nosniff, and a locked-down Permissions-Policy (`next.config.ts`).
-- **Rate limits** (Postgres-backed, shared across server instances): checkout 10 per 10 min per IP; payment verify/cancel 30 per 10 min per IP; photo uploads 120 per hour per staff member; dashboard password 5 tries per 15 min. A shopper can hold at most 2 unpaid checkouts, so stock can’t be locked up by fake orders. Login is limited too: Google starts 30 per 10 min per IP; phone logins 20 per 15 min per IP, and Firebase applies its own SMS abuse protection.
-- The dashboard address is secret (`ADMIN_PATH`), returns 404 to everyone else, and needs a separate scrypt-hashed password. Every dashboard change is recorded in the activity log.
-- Search engines are told not to index `/account`, `/login` and the API.
-- Every table has Row Level Security on with **no policies**, so the public Supabase API key cannot read or write store data. All access goes through this app’s server routes, which validate input (zod) and check admin rights.
-- Prices and totals are always computed on the server.
-- Mutating routes reject cross-origin requests. Razorpay payments and webhooks are verified with HMAC signatures.
-- Run `npm audit --omit=dev` regularly and keep Next.js patched; security fixes ship often.
-- Keep `SUPABASE_SERVICE_ROLE_KEY`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET` and `DATABASE_URL` server-side only.
+| Area          | What's in place                                                                                                                                                                                                                                                                                                                                              |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Database      | Row Level Security on every table with no policies, **and** the Supabase public API roles (`anon`, `authenticated`) have no table privileges — the public API can't read or write anything. The app connects server-side over **TLS** (optionally certificate-verified with `DATABASE_CA_CERT`). All queries are parameterised (Drizzle); no raw string SQL. |
+| Storage       | Public product-photo bucket (photos must be viewable); uploads only server-side with the service-role key, by unlocked staff. Uploads are type-sniffed, size-limited, **re-encoded** to WebP (strips EXIF/GPS, neutralises crafted files) and resized.                                                                                                       |
+| Auth          | Google OAuth (PKCE + state + nonce, ID token checked); httpOnly + Secure + SameSite cookies; only a SHA-256 hash of session tokens is stored. Dashboard: secret path (`ADMIN_PATH`, 404 for others) + scrypt password (N=2¹⁵, r=8, p=3, auto-upgraded), tied to the login and browser session.                                                               |
+| Authorisation | Every API route and server action checks login / staff permission server-side; customers can only reach their own orders and addresses (no IDOR). Prices, totals and stock are always computed on the server.                                                                                                                                                |
+| XSS           | React escapes all output; no `dangerouslySetInnerHTML`; links/images from admins are validated. **Strict nonce-based Content-Security-Policy** (`proxy.ts`): only scripts with the per-request nonce (and what they load) can run.                                                                                                                           |
+| CSRF / CORS   | Mutations require proof of same origin (Origin, Sec-Fetch-Site or Referer); no CORS headers, so other sites can't read API responses. Server actions have Next.js' built-in origin check.                                                                                                                                                                    |
+| Headers       | HSTS (preload), CSP, X-Frame-Options DENY / frame-ancestors none, nosniff, Referrer-Policy, Permissions-Policy, no `X-Powered-By`; API responses `no-store` with `default-src 'none'`.                                                                                                                                                                       |
+| Abuse         | Postgres-backed rate limits: checkout, payment verify/cancel, product lookups (120/min/IP), address & profile edits, uploads, Google login start, phone login, dashboard password (5 tries / 15 min). Max 2 unpaid checkouts per email.                                                                                                                      |
+| Payments      | Razorpay signatures (payment + webhook) verified with constant-time HMAC; webhook body size-capped; idempotent. Checkout is refused cleanly until Razorpay keys exist. Mock payments are impossible in production builds.                                                                                                                                    |
+| Secrets       | Secrets are server-only env vars; the only `NEXT_PUBLIC_*` value is the Supabase URL. No secrets in git history. No browser source maps in production.                                                                                                                                                                                                       |
+| Audit         | Every dashboard change is in the activity log; order history and stock movements are recorded.                                                                                                                                                                                                                                                               |
+| Dependencies  | Unused packages removed; `npm audit --omit=dev` is clean. (4 moderate advisories remain in drizzle-kit's bundled esbuild — a local migration tool, never deployed.)                                                                                                                                                                                          |
+
+**Not needed here:** CAPTCHA — there are no anonymous write forms (every order/address/profile action requires a Google login; mobile OTP, when enabled, uses Firebase's built-in reCAPTCHA).
+
+**Recommended in the hosting dashboards:**
+
+- Supabase → Database → SSL: **Enforce SSL**; consider disabling the Data API (this app never uses it); enable backups/PITR on a paid plan.
+- Vercel → Firewall: keep the default DDoS protection on; turn on _Attack Challenge Mode_ if the site is ever attacked.
+- Rotate any key that was ever shared in chat or email (e.g. the Google client secret).
 
 ## Deploying (e.g. Vercel)
 
-1. Import the repo and add every variable from `.env.example` (use `DATABASE_POOL_MAX=1` on serverless).
+1. Import the repo and add every variable from `.env.example` (use `DATABASE_POOL_MAX=3` on Vercel).
 2. Set `SITE_URL` to the live domain, add `https://<domain>/auth/google/callback` to the Google OAuth client, and add the domain to Firebase's authorized domains.
 3. In Razorpay, add the webhook `https://<domain>/api/webhooks/razorpay` with events `payment.captured` and `order.paid`.
 4. Run `npm run db:migrate` against production once.

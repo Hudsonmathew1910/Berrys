@@ -7,15 +7,6 @@ const eslintConfig = defineConfig([
   ...nextTs,
   globalIgnores([".next/**", "out/**", "drizzle/**", "next-env.d.ts"]),
   {
-    files: ["components/ui/**/*.{ts,tsx}", "hooks/use-mobile.ts"],
-    rules: {
-      // Vendored verbatim from the shadcn registry. Keep the source intact.
-      "@typescript-eslint/no-unused-vars": "off",
-      "react-hooks/purity": "off",
-      "react-hooks/set-state-in-effect": "off",
-    },
-  },
-  {
     // Product photos come from Supabase Storage / user uploads with unknown
     // dimensions, so plain <img> is intentional throughout the storefront.
     files: [
