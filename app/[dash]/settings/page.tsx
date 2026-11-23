@@ -1,4 +1,4 @@
-import { emailConfigured, emailProvider } from "@/lib/email";
+import { emailConfigured, emailProvider, emailStats } from "@/lib/email";
 import { razorpayConfigured } from "@/lib/orders";
 import { getSettings } from "@/lib/settings";
 import Link from "next/link";
@@ -7,6 +7,21 @@ import { ActionForm } from "@/components/dashboard/action-form";
 import { ImageField } from "@/components/dashboard/image-field";
 import { StatusDot, Toggle } from "@/components/dashboard/settings-ui";
 import { paymentModeAction, saveSettingsAction } from "../actions";
+
+/** Names for the "Emails sent" breakdown. */
+const emailKindLabels: Record<string, string> = {
+  "order-confirmation": "Order confirmations",
+  "team-new-order": "New order (team)",
+  "status-update": "Order status updates",
+  "login-alert": "Sign-in alerts",
+  "sign-in-code": "Sign-in codes",
+  "dashboard-reset": "Dashboard password codes",
+  "refund-requested": "Refund requests (team)",
+  "refund-received": "Refund receipts (customer)",
+  "refund-verified": "Refunds to approve",
+  "refund-decision": "Refund decisions",
+  "team-request": "Staff requests to approve",
+};
 
 const socialFields = [
   ["instagram", "Instagram"],
@@ -17,9 +32,11 @@ const socialFields = [
 ] as const;
 
 export default async function SettingsPage() {
-  await requirePage("admin");
+  await requirePage("settings");
   const s = await getSettings();
   const mail = emailConfigured();
+  const sent = await emailStats();
+  const used = Math.min(100, Math.round((sent.day / s.emailDailyLimit) * 100));
   const rzp = razorpayConfigured();
   const checks: [string, boolean, string][] = [
     ["Environment", true, process.env.NODE_ENV === "production" ? "Production" : "Development"],
@@ -196,7 +213,7 @@ export default async function SettingsPage() {
             <Toggle
               name="emailSignIn"
               title="Sign in with email"
-              text="Anyone can sign in by typing their email — the same account as Google for that email. No code check yet."
+              text="Anyone can sign in with their email: we email a 6-digit code to prove it’s theirs. Same account as Google for that email. Needs email (SMTP) set up."
               checked={s.emailSignIn}
             />
             <Toggle
@@ -206,6 +223,76 @@ export default async function SettingsPage() {
               checked={s.dashboardPasswordReset}
             />
             <button className="primary">Save email settings</button>
+          </ActionForm>
+        </section>
+
+        <section className={"dash-panel" + (used >= 80 ? " highlight" : "")} id="email-usage">
+          <h2>Emails sent</h2>
+          <p className="muted">
+            {emailProvider() === "Gmail SMTP"
+              ? "Gmail lets one account send about 500 emails a day (2,000 with Google Workspace), counted over the last 24 hours. Past the limit, emails fail until the oldest ones are a day old."
+              : "Counted over the last 24 hours, against the daily limit of your email account."}
+          </p>
+          <div
+            className="mail-meter"
+            role="img"
+            aria-label={`${sent.day} of ${s.emailDailyLimit} emails in the last 24 hours`}
+          >
+            <div className="mail-meter-top">
+              <b>{sent.day.toLocaleString("en-IN")}</b>
+              <span className="muted">
+                of {s.emailDailyLimit.toLocaleString("en-IN")} in the last 24 hours
+              </span>
+            </div>
+            <div className={"mail-meter-bar" + (used >= 90 ? " danger" : used >= 70 ? " warn" : "")}>
+              <span style={{ width: `${Math.max(used, sent.day ? 2 : 0)}%` }} />
+            </div>
+            <small className="muted">
+              {Math.max(0, s.emailDailyLimit - sent.day).toLocaleString("en-IN")} left today
+              {used >= 80 && " — close to the limit"}
+            </small>
+          </div>
+          <dl className="mail-stats">
+            <div>
+              <dt>Last 7 days</dt>
+              <dd>{sent.week.toLocaleString("en-IN")}</dd>
+            </div>
+            <div>
+              <dt>Last 30 days</dt>
+              <dd>{sent.month.toLocaleString("en-IN")}</dd>
+            </div>
+            <div>
+              <dt>Failed (24 h)</dt>
+              <dd className={sent.failedDay ? "minus" : ""}>{sent.failedDay}</dd>
+            </div>
+          </dl>
+          {sent.byKind.length > 0 && (
+            <table className="dash-table compact">
+              <tbody>
+                {sent.byKind.map((k) => (
+                  <tr key={k.kind}>
+                    <td>{emailKindLabels[k.kind] ?? (k.kind || "Other")}</td>
+                    <td className="num">{k.n}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+          <ActionForm action={saveSettingsAction}>
+            <input type="hidden" name="section" value="emailLimit" />
+            <label>
+              Daily limit of the email account
+              <input
+                name="emailDailyLimit"
+                type="number"
+                min={10}
+                max={100000}
+                required
+                defaultValue={s.emailDailyLimit}
+              />
+            </label>
+            <small className="muted">500 for a normal Gmail account, 2000 for Google Workspace.</small>
+            <button className="outline">Save limit</button>
           </ActionForm>
         </section>
 

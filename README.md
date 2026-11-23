@@ -138,6 +138,13 @@ public/images/berrys-logo-full.webp   footer logo · berrys-mark.webp header mar
 | `npm run db:generate` | New migration after editing `db/schema.ts` |
 | `npm run db:migrate`  | Apply migrations (uses `DIRECT_URL`)       |
 | `npm run db:studio`   | Browse the database                        |
+| `npm test`            | Tests on a throwaway in-memory database    |
+| `npm run test:live`   | Race-condition tests on the real database  |
+
+`npm test` runs every migration on a temporary database (PGlite), with email and Razorpay
+switched off, so it is safe to run any time. `npm run test:live` uses `DATABASE_URL` from
+`.env`: it creates a temporary product and test orders, then deletes them — run it only
+when you mean to.
 
 ## Security
 

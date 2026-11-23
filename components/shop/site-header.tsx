@@ -20,7 +20,8 @@ function HeaderLoginMenu({ emailSignIn }: { emailSignIn: boolean }) {
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
       const target = e.target as HTMLElement;
-      if (!target.closest(".header-login-wrap")) {
+      // A button that re-rendered away (e.g. "Change email") is no longer in the page.
+      if (target.isConnected && !target.closest(".header-login-wrap")) {
         setOpen(false);
       }
     }
@@ -44,7 +45,9 @@ function HeaderLoginMenu({ emailSignIn }: { emailSignIn: boolean }) {
         aria-expanded={open}
         onClick={(e) => {
           e.stopPropagation();
-          setOpen((v) => !v);
+          // A mouse already opened it on hover, so a click shouldn't close it again.
+          const mouse = (e.nativeEvent as PointerEvent).pointerType === "mouse";
+          setOpen((v) => (mouse ? true : !v));
         }}
       >
         <span className="action-symbol">

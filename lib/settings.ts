@@ -54,8 +54,10 @@ export const settingsSchema = z.object({
   // Emails
   emailOrderStatus: z.boolean(),
   emailLoginAlert: z.boolean(),
-  /** "Continue with email" on the login page and header (no code check yet). */
+  /** "Continue with email" on the login page and header (a 6-digit code is emailed to check the address). */
   emailSignIn: z.boolean(),
+  /** Daily sending limit of the email account (Gmail 500, Google Workspace 2000), for the counter. */
+  emailDailyLimit: z.coerce.number().int().min(10).max(100000),
   emailTeamNewOrder: z.boolean(),
   /** "Forgot password?" on the dashboard sends a one-time code to the person's Gmail. */
   dashboardPasswordReset: z.boolean(),
@@ -96,6 +98,7 @@ export const settingsDefaults: Settings = {
   emailOrderStatus: true,
   emailLoginAlert: false,
   emailSignIn: true,
+  emailDailyLimit: 500,
   emailTeamNewOrder: true,
   dashboardPasswordReset: true,
   paymentMode: "razorpay",

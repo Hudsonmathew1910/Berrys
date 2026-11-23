@@ -14,11 +14,14 @@ export function DashFrame({
   children,
   home,
   roleLabel,
+  alerts = 0,
 }: {
   sidebar: React.ReactNode;
   children: React.ReactNode;
   home: string;
   roleLabel: string;
+  /** New orders + requests, shown on the phone menu button. */
+  alerts?: number;
 }) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
@@ -44,11 +47,12 @@ export function DashFrame({
       <div className="dash-mobilebar">
         <button
           className="dash-menu-btn"
-          aria-label="Open menu"
+          aria-label={alerts ? `Open menu (${alerts} new)` : "Open menu"}
           aria-expanded={open}
           onClick={() => setOpen(true)}
         >
           <Menu size={22} />
+          {alerts > 0 && <span className="menu-badge">{alerts > 99 ? "99+" : alerts}</span>}
         </button>
         <Link href={home} className="dash-mobile-logo" aria-label="Dashboard home">
           <img src="/images/berrys-mark.webp" alt="" />

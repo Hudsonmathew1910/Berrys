@@ -2034,6 +2034,47 @@ html {
   margin: 0;
   font-size: 12px;
 }
+.email-signin-info {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.email-signin-code {
+  letter-spacing: 6px;
+  font-weight: 600;
+}
+.email-signin-code::placeholder {
+  letter-spacing: normal;
+  font-weight: 400;
+}
+.email-signin-links {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.email-signin .link-button {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 13px;
+  color: var(--navy);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.email-signin .link-button:disabled {
+  color: var(--muted);
+  text-decoration: none;
+  cursor: default;
+}
+.email-signin.compact .email-signin-info,
+.email-signin.compact .link-button {
+  font-size: 12px;
+}
 .header-email-signin {
   margin-top: 8px;
   padding: 10px;

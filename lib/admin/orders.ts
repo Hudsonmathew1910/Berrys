@@ -196,3 +196,12 @@ export async function deleteUnpaidOrders(actor: string) {
   }
   return ids.length;
 }
+
+/** New orders waiting to be packed (paid, not packed yet) — the badge on "Orders". */
+export async function newOrderCount() {
+  const [{ n }] = await getDb()
+    .select({ n: sql<number>`count(*)::int` })
+    .from(schema.orders)
+    .where(eq(schema.orders.status, "paid"));
+  return n;
+}

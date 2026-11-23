@@ -56,7 +56,7 @@ export default async function CustomerPage({ params }: { params: Promise<{ id: s
           </table>
           {!c.orders.length && <p className="muted">No orders yet.</p>}
         </section>
-        {staff.role === "admin" && (
+        {can(staff, "delete_records") && (
           <section className="dash-panel danger-zone">
             <h2>Delete customer</h2>
             <p className="muted">

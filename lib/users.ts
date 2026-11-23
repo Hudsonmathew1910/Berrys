@@ -53,8 +53,8 @@ export async function loginWithGoogle(p: GoogleProfile): Promise<User> {
       if (existing.googleSub && existing.googleSub !== p.sub) {
         throw new HttpError(409, "This email is linked to a different Google account.");
       }
-      // Google proves who owns this email: sign out every session that an
-      // email-only login (which has no code check yet) may have opened.
+      // Google proves who owns this email: sign out any other sessions on an
+      // account Google wasn't linked to yet (e.g. ones from before email codes).
       if (!existing.googleSub) await tx.delete(sessions).where(eq(sessions.userId, existing.id));
       const [u] = await tx
         .update(users)
@@ -69,9 +69,9 @@ export async function loginWithGoogle(p: GoogleProfile): Promise<User> {
 }
 
 /**
- * Log in (or sign up) with just an email address. One account per email:
- * the same account whether the person uses Google or email.
- * TODO: verify a one-time code sent to the email before calling this.
+ * Log in (or sign up) by email address. One account per email: the same
+ * account whether the person uses Google or email. Only call this after the
+ * emailed code has been checked (lib/login-codes.ts).
  */
 export async function loginWithEmail(rawEmail: string): Promise<User> {
   const email = rawEmail.trim().toLowerCase();

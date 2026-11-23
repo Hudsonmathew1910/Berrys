@@ -119,13 +119,46 @@
   color: #ebdfc3;
   box-shadow: inset 2px 0 var(--gold);
 }
+/* Count bubble at the top-right of a menu name (new orders, requests). */
+.nav-label {
+  position: relative;
+  padding-right: 4px;
+}
 .nav-badge {
-  margin-left: auto;
-  background: var(--gold);
+  position: absolute;
+  left: 100%;
+  top: -8px;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 5px;
+  display: inline-grid;
+  place-items: center;
+  background: #d9483b;
   color: #fff;
-  border-radius: 10px;
+  border-radius: 9px;
   font-size: 10px;
-  padding: 1px 7px;
+  font-weight: 700;
+  line-height: 1;
+  box-shadow: 0 0 0 2px var(--navy, #183147);
+}
+.dash-menu-btn {
+  position: relative;
+}
+.menu-badge {
+  position: absolute;
+  top: 4px;
+  right: 2px;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 4px;
+  display: grid;
+  place-items: center;
+  background: #d9483b;
+  color: #fff;
+  border-radius: 9px;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
 }
 .dash-sidebar-bottom {
   margin-top: auto;
@@ -1351,5 +1384,124 @@
   .refund-card-head small {
     margin-left: 0;
     width: 100%;
+  }
+}
+
+/* ---- Settings: emails sent meter ---- */
+.mail-meter {
+  display: grid;
+  gap: 6px;
+  margin: 4px 0 14px;
+}
+.mail-meter-top {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.mail-meter-top b {
+  font-size: 26px;
+  color: var(--navy);
+}
+.mail-meter-bar {
+  height: 8px;
+  border-radius: 4px;
+  background: #ecebe4;
+  overflow: hidden;
+}
+.mail-meter-bar span {
+  display: block;
+  height: 100%;
+  background: #3f8f5b;
+  border-radius: 4px;
+}
+.mail-meter-bar.warn span {
+  background: #d29b2c;
+}
+.mail-meter-bar.danger span {
+  background: #d9483b;
+}
+.mail-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0 0 12px;
+}
+.mail-stats div {
+  background: #f6f4ef;
+  border-radius: 6px;
+  padding: 8px 10px;
+}
+.mail-stats dt {
+  font-size: 11px;
+  color: var(--muted);
+}
+.mail-stats dd {
+  margin: 2px 0 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+/* ---- Team & access: role + access picker ---- */
+.access-picker {
+  display: grid;
+  gap: 10px;
+  margin: 10px 0;
+}
+.access-picker > label {
+  max-width: 320px;
+}
+.access-modes {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.access-mode {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+}
+.access-mode.on {
+  border-color: var(--navy);
+  background: #f6f4ef;
+}
+.access-mode input {
+  margin-top: 2px;
+}
+.access-mode span {
+  display: grid;
+  gap: 2px;
+}
+.access-mode small {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+.perm-grid label.muted {
+  color: var(--muted);
+}
+.access-list {
+  margin: 0 0 8px;
+  padding-left: 18px;
+  font-size: 12px;
+}
+.request-delete summary {
+  cursor: pointer;
+  font-size: 12px;
+}
+.request-delete[open] summary {
+  margin-bottom: 8px;
+}
+@media (max-width: 760px) {
+  .access-modes {
+    grid-template-columns: 1fr;
+  }
+  .mail-stats {
+    grid-template-columns: 1fr 1fr 1fr;
   }
 }

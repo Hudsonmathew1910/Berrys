@@ -3,7 +3,7 @@ import { listOrders } from "@/lib/admin/orders";
 import { money } from "@/lib/catalog";
 import { statusLabels } from "@/lib/order-status";
 import { refundStatusLabels } from "@/lib/refunds";
-import { adminHref, requirePage } from "@/lib/staff";
+import { adminHref, can, requirePage } from "@/lib/staff";
 import { ListTools, pageNum } from "@/components/dashboard/list-tools";
 import { ActionForm } from "@/components/dashboard/action-form";
 import { Pagination } from "@/components/shop/pagination";
@@ -29,7 +29,7 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
           <h1>Orders</h1>
           <span className="muted">{res.total} orders</span>
         </div>
-        {staff.role === "admin" && (
+        {can(staff, "delete_records") && (
           <ActionForm
             action={deleteUnpaidOrdersAction}
             confirm="Delete ALL expired and cancelled (never paid) orders? This cannot be undone."

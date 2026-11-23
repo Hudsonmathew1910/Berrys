@@ -17,7 +17,8 @@ export default async function OverviewPage() {
   const seeSales = can(staff, "analytics");
   const seeOrders = can(staff, "orders");
   const seeStock = can(staff, "stock") || can(staff, "products");
-  const seeErrors = staff.role === "admin";
+  const seeErrors = can(staff, "errors");
+  const approver = can(staff, "requests");
   const [summary, days, trending, counts, recent, low, pending, errors, settings, refundCounts] =
     await Promise.all([
       seeSales ? salesSummary(30) : null,
@@ -26,12 +27,12 @@ export default async function OverviewPage() {
       seeOrders ? orderStatusCounts() : null,
       seeOrders ? listOrders({ page: 1 }) : null,
       seeStock ? lowStock(3, 8) : null,
-      staff.role === "admin" ? pendingRequestCount() : 0,
+      approver ? pendingRequestCount() : 0,
       seeErrors ? recentErrorCount() : 0,
       getSettings(),
-      seeOrders ? refundRequestCounts() : { requested: 0, verified: 0 },
+      seeOrders || approver ? refundRequestCounts() : { requested: 0, verified: 0 },
     ]);
-  const refundAlerts = refundCounts.requested + (staff.role === "admin" ? refundCounts.verified : 0);
+  const refundAlerts = refundCounts.requested + (approver ? refundCounts.verified : 0);
   const toShip = counts ? (counts.paid ?? 0) + (counts.packed ?? 0) : 0;
 
   return (
@@ -71,7 +72,7 @@ export default async function OverviewPage() {
               <AlertCircle size={16} /> {refundCounts.requested} customer refund requests to check
             </Link>
           )}
-          {staff.role === "admin" && refundCounts.verified > 0 && (
+          {approver && refundCounts.verified > 0 && (
             <Link href={adminHref("requests")}>
               <AlertCircle size={16} /> {refundCounts.verified} verified refunds waiting for your approval
             </Link>

@@ -1,10 +1,12 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 import { ArrowUpRight, Lock, LogOut } from "lucide-react";
+import { newOrderCount } from "@/lib/admin/orders";
 import { pendingRequestCount } from "@/lib/admin/team";
 import { refundRequestCounts } from "@/lib/refunds";
-import { adminHref, adminPath, can, getDashboardContext, roleLabels } from "@/lib/staff";
+import { adminHref, adminPath, can, getDashboardContext, roleLabels, sectionAccess } from "@/lib/staff";
 import { DashFrame } from "@/components/dashboard/dash-frame";
 import { DashNav, type NavItem } from "@/components/dashboard/dash-nav";
 import { UnlockScreen } from "@/components/dashboard/unlock-screen";
@@ -41,20 +43,31 @@ export default async function DashboardLayout({
     );
   }
 
-  const isAdmin = staff.role === "admin";
+  // Checked here as well as in each page: the layout runs before the loading screen
+  // streams, so a section someone can't open answers with a real 404.
+  const needs = sectionAccess((await headers()).get("x-pathname") ?? "");
+  if (needs && !can(staff, needs)) notFound();
+
   const roleLabel = staff.role === "admin" ? "SHOP ADMIN" : "SHOP STAFF";
-  const [pending, refundCounts] = await Promise.all([
-    isAdmin ? pendingRequestCount() : 0,
-    can(staff, "orders") ? refundRequestCounts() : { requested: 0, verified: 0 },
+  const seeOrders = can(staff, "orders");
+  const approver = can(staff, "requests");
+  const [pending, refundCounts, newOrders] = await Promise.all([
+    approver ? pendingRequestCount() : 0,
+    seeOrders || approver ? refundRequestCounts() : { requested: 0, verified: 0 },
+    seeOrders ? newOrderCount() : 0,
   ]);
+  // Orders: new paid orders to pack (+ customer refund requests to check, for staff who verify them).
+  const ordersBadge = newOrders + (seeOrders && !approver ? refundCounts.requested : 0);
+  // Requests: staff requests + customer refund requests waiting on an admin.
+  const requestsBadge = approver ? pending + refundCounts.requested + refundCounts.verified : 0;
   const all: (NavItem & { show: boolean })[] = [
     { key: "overview", label: "Overview", href: adminHref(), show: true },
     {
       key: "orders",
       label: "Orders",
       href: adminHref("orders"),
-      show: can(staff, "orders"),
-      badge: isAdmin ? 0 : refundCounts.requested,
+      show: seeOrders,
+      badge: ordersBadge,
     },
     { key: "products", label: "Products", href: adminHref("products"), show: can(staff, "products") },
     { key: "categories", label: "Categories", href: adminHref("categories"), show: can(staff, "categories") },
@@ -73,13 +86,13 @@ export default async function DashboardLayout({
       key: "requests",
       label: "Requests",
       href: adminHref("requests"),
-      show: isAdmin,
-      badge: pending + refundCounts.requested + refundCounts.verified,
+      show: approver,
+      badge: requestsBadge,
     },
-    { key: "team", label: "Team & access", href: adminHref("team"), show: isAdmin },
-    { key: "activity", label: "Activity log", href: adminHref("activity"), show: isAdmin },
-    { key: "errors", label: "Error log", href: adminHref("errors"), show: isAdmin },
-    { key: "settings", label: "Settings", href: adminHref("settings"), show: isAdmin },
+    { key: "team", label: "Team & access", href: adminHref("team"), show: can(staff, "team") },
+    { key: "activity", label: "Activity log", href: adminHref("activity"), show: can(staff, "activity") },
+    { key: "errors", label: "Error log", href: adminHref("errors"), show: can(staff, "errors") },
+    { key: "settings", label: "Settings", href: adminHref("settings"), show: can(staff, "settings") },
     { key: "account", label: "My account", href: adminHref("account"), show: true },
   ];
 
@@ -88,6 +101,7 @@ export default async function DashboardLayout({
       <DashFrame
         home={adminHref()}
         roleLabel={roleLabel}
+        alerts={ordersBadge + requestsBadge}
         sidebar={
           <>
             <Link href={adminHref()} className="dash-logo">

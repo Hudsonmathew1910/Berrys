@@ -1,8 +1,9 @@
 import "server-only";
 import { and, desc, eq, ne, sql } from "drizzle-orm";
 import { getDb, schema } from "@/db";
-import type { Permission, StaffRole } from "@/db/schema";
+import type { AccessKey, AccessMode, ApprovalType, StaffRole } from "@/db/schema";
 import { isOwnerEmail } from "@/lib/auth";
+import { serverEnv } from "@/lib/env";
 import { HttpError } from "@/lib/http-error";
 
 const { staffMembers, approvalRequests, activityLog, dashboardSessions } = schema;
@@ -12,16 +13,23 @@ export async function listStaff() {
   return getDb().select().from(staffMembers).orderBy(desc(staffMembers.role), staffMembers.email);
 }
 
-export async function addStaff(email: string, role: StaffRole, permissions: Permission[], by: string) {
+type AccessFields = { role: StaffRole; accessMode: AccessMode; permissions: AccessKey[] };
+
+export async function getStaff(id: string) {
+  const [s] = await getDb().select().from(staffMembers).where(eq(staffMembers.id, id)).limit(1);
+  if (!s) throw new HttpError(404, "Team member not found.");
+  return s;
+}
+
+export async function addStaff(
+  email: string,
+  data: AccessFields & { active: boolean; notifyOrders: boolean },
+  by: string,
+) {
   try {
     const [s] = await getDb()
       .insert(staffMembers)
-      .values({
-        email: email.toLowerCase(),
-        role,
-        permissions: role === "staff" ? permissions : [],
-        createdBy: by,
-      })
+      .values({ email: email.toLowerCase(), ...data, createdBy: by })
       .returning();
     return s;
   } catch (e) {
@@ -31,37 +39,49 @@ export async function addStaff(email: string, role: StaffRole, permissions: Perm
   }
 }
 
+/**
+ * The owner can't be demoted, and there must always be another active
+ * full-access admin before one stops being one.
+ */
 async function guardOwnerAndLastAdmin(
   id: string,
-  change: { role?: StaffRole; active?: boolean; remove?: boolean },
+  change: { role?: StaffRole; accessMode?: AccessMode; active?: boolean; remove?: boolean },
 ) {
-  const db = getDb();
-  const [s] = await db.select().from(staffMembers).where(eq(staffMembers.id, id)).limit(1);
-  if (!s) throw new HttpError(404, "Team member not found.");
+  const s = await getStaff(id);
+  const owner = isOwnerEmail(s.email);
   const demoting = change.remove || change.active === false || (change.role && change.role !== "admin");
-  if (demoting && isOwnerEmail(s.email))
-    throw new HttpError(400, "The store owner (STORE_OWNER_EMAIL) is always an admin.");
-  if (demoting && s.role === "admin") {
-    const [{ n }] = await db
+  if (demoting && owner) throw new HttpError(400, "The store owner (STORE_OWNER_EMAIL) is always an admin.");
+  const losingFull = demoting || change.accessMode === "manual";
+  if (losingFull && !owner && s.role === "admin" && s.accessMode !== "manual" && s.active) {
+    const [{ n }] = await getDb()
       .select({ n: sql<number>`count(*)::int` })
       .from(staffMembers)
-      .where(and(eq(staffMembers.role, "admin"), eq(staffMembers.active, true), ne(staffMembers.id, id)));
-    if (n === 0) throw new HttpError(400, "There must always be at least one active admin.");
+      .where(
+        and(
+          eq(staffMembers.role, "admin"),
+          eq(staffMembers.accessMode, "full"),
+          eq(staffMembers.active, true),
+          ne(staffMembers.id, id),
+        ),
+      );
+    if (n === 0 && !serverEnv.storeOwnerEmail())
+      throw new HttpError(400, "There must always be at least one active admin with full access.");
   }
   return s;
 }
 
 export async function updateStaff(
   id: string,
-  data: { role: StaffRole; permissions: Permission[]; active: boolean; name: string; notifyOrders: boolean },
+  data: AccessFields & { active: boolean; name: string; notifyOrders: boolean },
 ) {
   const s = await guardOwnerAndLastAdmin(id, data);
-  await getDb()
-    .update(staffMembers)
-    .set({ ...data, permissions: data.role === "staff" ? data.permissions : [] })
-    .where(eq(staffMembers.id, id));
-  // Deactivated or changed: end their open dashboard sessions.
-  if (!data.active || data.role !== s.role)
+  // The owner always keeps full admin access, whatever the form says.
+  const fixed = isOwnerEmail(s.email)
+    ? { ...data, role: "admin" as const, accessMode: "full" as const, permissions: [], active: true }
+    : data;
+  await getDb().update(staffMembers).set(fixed).where(eq(staffMembers.id, id));
+  // Deactivated or role changed: end their open dashboard sessions.
+  if (!fixed.active || fixed.role !== s.role)
     await getDb().delete(dashboardSessions).where(eq(dashboardSessions.staffId, id));
   return s;
 }
@@ -86,12 +106,7 @@ export async function removeStaff(id: string) {
 
 // ---------------------------------------------------------------- approval requests
 
-export async function createRequest(
-  type: "refund" | "delete_product" | "delete_order",
-  targetId: string,
-  reason: string,
-  by: string,
-) {
+export async function createRequest(type: ApprovalType, targetId: string, reason: string, by: string) {
   const db = getDb();
   const [open] = await db
     .select({ id: approvalRequests.id })
@@ -105,7 +120,11 @@ export async function createRequest(
     )
     .limit(1);
   if (open) throw new HttpError(409, "A request for this is already waiting for an admin.");
-  await db.insert(approvalRequests).values({ type, targetId, reason, requestedBy: by });
+  const [req] = await db
+    .insert(approvalRequests)
+    .values({ type, targetId, reason, requestedBy: by })
+    .returning();
+  return req;
 }
 
 export async function listRequests(status: "pending" | "decided", page: number) {

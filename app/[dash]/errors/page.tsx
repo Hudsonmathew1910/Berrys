@@ -26,7 +26,7 @@ export default async function ErrorLogPage({
 }: {
   searchParams: Promise<{ page?: string; source?: string }>;
 }) {
-  await requirePage("admin");
+  await requirePage("errors");
   const sp = await searchParams;
   const source = (errorSources as readonly string[]).includes(sp.source ?? "")
     ? (sp.source as ErrorSource)

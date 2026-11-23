@@ -4,7 +4,7 @@ import { pageNum } from "@/components/dashboard/list-tools";
 import { Pagination } from "@/components/shop/pagination";
 
 export default async function ActivityPage({ searchParams }: { searchParams: Promise<{ page?: string }> }) {
-  await requirePage("admin");
+  await requirePage("activity");
   const page = pageNum((await searchParams).page);
   const res = await listActivity(page);
   return (

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { listRequests } from "@/lib/admin/team";
+import { getCategories } from "@/lib/categories";
 import { listRefundRequests } from "@/lib/refunds";
 import { RefundRequestCard } from "@/components/dashboard/refund-request-card";
 import { adminHref, requirePage } from "@/lib/staff";
@@ -13,7 +14,7 @@ export default async function RequestsPage({
 }: {
   searchParams: Promise<{ view?: string; page?: string }>;
 }) {
-  await requirePage("admin");
+  await requirePage("requests");
   const sp = await searchParams;
   const view = sp.view === "decided" ? "decided" : "pending";
   const page = pageNum(sp.page);
@@ -24,7 +25,10 @@ export default async function RequestsPage({
   const target = (type: string, id: string) =>
     type === "refund" || type === "delete_order"
       ? adminHref(`orders/${encodeURIComponent(id)}`)
-      : adminHref(`products/${encodeURIComponent(id)}`);
+      : type === "delete_category"
+        ? adminHref("categories")
+        : adminHref(`products/${encodeURIComponent(id)}`);
+  const categoryNames = new Map((await getCategories(false)).map((c) => [c.id, c.name] as const));
 
   return (
     <div className="dash-page">
@@ -79,8 +83,12 @@ export default async function RequestsPage({
                 ? "Refund order"
                 : r.type === "delete_order"
                   ? "Delete order"
-                  : "Delete product"}{" "}
-              <Link href={target(r.type, r.targetId)}>{r.targetId}</Link>
+                  : r.type === "delete_category"
+                    ? "Delete category"
+                    : "Delete product"}{" "}
+              <Link href={target(r.type, r.targetId)}>
+                {r.type === "delete_category" ? (categoryNames.get(r.targetId) ?? r.targetId) : r.targetId}
+              </Link>
             </h2>
             <p>
               “{r.reason}”

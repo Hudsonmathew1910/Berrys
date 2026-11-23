@@ -228,8 +228,23 @@ export const permissionKeys = [
   "content",
   "refunds",
   "delete_products",
+  "delete_categories",
 ] as const;
 export type Permission = (typeof permissionKeys)[number];
+/** Areas only admins can be given (Team & access → admin with chosen access). */
+export const adminAreaKeys = [
+  "requests",
+  "team",
+  "settings",
+  "errors",
+  "activity",
+  "delete_records",
+] as const;
+export type AdminArea = (typeof adminAreaKeys)[number];
+export type AccessKey = Permission | AdminArea;
+/** full = everything (admins) · default = the standard staff set · manual = only what's ticked. */
+export const accessModes = ["full", "default", "manual"] as const;
+export type AccessMode = (typeof accessModes)[number];
 export type StaffRole = "admin" | "staff";
 
 /**
@@ -246,16 +261,18 @@ export const staffMembers = pgTable("staff_members", {
   role: text("role").$type<StaffRole>().notNull(),
   permissions: text("permissions")
     .array()
-    .$type<Permission[]>()
+    .$type<AccessKey[]>()
     .notNull()
     .default(sql`'{}'::text[]`),
+  /** How `permissions` applies: see accessModes. The store owner always has full access. */
+  accessMode: text("access_mode").$type<AccessMode>().notNull().default("manual"),
   passwordHash: text("password_hash"),
   active: boolean("active").notNull().default(true),
   createdBy: text("created_by").notNull().default(""),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
   /** Gets an email for every new paid order (the store owner never does). */
-  notifyOrders: boolean("notify_orders").notNull().default(false),
+  notifyOrders: boolean("notify_orders").notNull().default(true),
   /** "Forgot password" one-time code sent to their Gmail (sha256, short-lived). */
   resetCodeHash: text("reset_code_hash"),
   resetCodeExpiresAt: timestamp("reset_code_expires_at", { withTimezone: true }),
@@ -341,11 +358,13 @@ export const offers = pgTable("offers", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }).enableRLS();
 
+export type ApprovalType = "refund" | "delete_product" | "delete_order" | "delete_category";
+
 /** Staff requests for actions they aren't allowed to do themselves (refunds, deletions). */
 export const approvalRequests = pgTable("approval_requests", {
   id: uuid("id").primaryKey().defaultRandom(),
-  /** refund | delete_product | delete_order */
-  type: text("type").$type<"refund" | "delete_product" | "delete_order">().notNull(),
+  /** refund | delete_product | delete_order | delete_category */
+  type: text("type").$type<ApprovalType>().notNull(),
   targetId: text("target_id").notNull(),
   reason: text("reason").notNull().default(""),
   status: text("status")
@@ -471,4 +490,33 @@ export const refundRequests = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index("refund_requests_order_idx").on(t.orderId), index("refund_requests_status_idx").on(t.status)],
+).enableRLS();
+
+/**
+ * One-time 6-digit codes for "Continue with email" (one live code per email).
+ * Only a hash of the code is stored; rows are removed once used or expired.
+ */
+export const emailLoginCodes = pgTable(
+  "email_login_codes",
+  {
+    email: text("email").primaryKey(),
+    codeHash: text("code_hash").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    attempts: integer("attempts").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("email_login_codes_expires_idx").on(t.expiresAt)],
+).enableRLS();
+
+/** One row per email sent (or failed), for the "emails sent" counter in Settings. No addresses are kept. */
+export const emailSends = pgTable(
+  "email_sends",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    kind: text("kind").notNull().default(""),
+    ok: boolean("ok").notNull(),
+    provider: text("provider").notNull().default(""),
+    sentAt: timestamp("sent_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("email_sends_sent_idx").on(t.sentAt)],
 ).enableRLS();

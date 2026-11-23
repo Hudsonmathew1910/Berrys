@@ -4,6 +4,7 @@ import { getViewer } from "@/lib/auth";
 import { sendLoginAlert } from "@/lib/email";
 import { HttpError } from "@/lib/http-error";
 import { assertSameOrigin, handleError, json } from "@/lib/http";
+import { checkLoginCode } from "@/lib/login-codes";
 import { clientIp, rateLimit } from "@/lib/rate-limit";
 import { createSession } from "@/lib/session";
 import { getSettings } from "@/lib/settings";
@@ -11,12 +12,15 @@ import { loginWithEmail } from "@/lib/users";
 
 const bodySchema = z.object({
   email: z.string().trim().toLowerCase().max(254).email("Please enter a valid email address."),
+  code: z
+    .string()
+    .transform((c) => c.replace(/\s+/g, ""))
+    .pipe(z.string().regex(/^\d{6}$/, "Enter the 6-digit code from the email.")),
 });
 
 /**
- * "Continue with email". Same account as Google for the same email. For now
- * the email alone signs in (Settings → Emails → Sign in with email). Next step: send a 6-digit code here and check it in a
- * second request before calling loginWithEmail.
+ * "Continue with email", step 2: check the emailed code, then sign in.
+ * Same account as Google for the same email.
  */
 export async function POST(request: Request) {
   try {
@@ -26,8 +30,14 @@ export async function POST(request: Request) {
     if (await getViewer()) throw new HttpError(400, "You’re already signed in.");
     const ip = clientIp(request);
     await rateLimit("email-login-ip", ip, 30, 10 * 60);
-    const { email } = bodySchema.parse(await request.json());
-    await rateLimit("email-login", email, 5, 10 * 60);
+    const { email, code } = bodySchema.parse(await request.json());
+    await rateLimit("email-login", email, 10, 10 * 60);
+
+    const result = await checkLoginCode(email, code);
+    if (result === "expired")
+      throw new HttpError(400, "This code has expired or was tried too many times. Please send a new code.");
+    if (result === "wrong")
+      throw new HttpError(400, "That code is incorrect. Please check the email and try again.");
 
     const user = await loginWithEmail(email);
     await createSession(user.id);

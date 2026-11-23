@@ -1,0 +1,440 @@
+// Dashboard, team access, orders and email logic against a throwaway database.
+// Run: npm test
+import assert from "node:assert/strict";
+import { exec, finish, migrate, test } from "./setup.mts";
+
+// Apply migrations with data shaped like the live store before 0006 (old products + admins table).
+await migrate(async (file) => {
+  if (file.startsWith("0006")) {
+    await exec(`
+      insert into users (id, email, name) values ('11111111-1111-1111-1111-111111111111','owner@berrys.test','Owner');
+      insert into admins (user_id, email) values ('11111111-1111-1111-1111-111111111111','owner@berrys.test');
+      insert into products (id,name,category,price,original_price,description,image,badge,color) values
+        ('berry-1','Peach set','Co-ord sets',699,899,'','/images/product-1.webp','','#000000'),
+        ('berry-2','Meadow dress','Dresses',899,1199,'','/images/product-5.webp','','#000000'),
+        ('berry-3','Odd one','Legacy',500,500,'','/images/product-2.webp','','#000000');
+      insert into inventory select p, s, 5 from unnest(array['berry-1','berry-2','berry-3']) p, unnest(array['S','M','L','XL']) s;`);
+  }
+});
+
+const { getDb } = await import("../db/index.ts");
+const { sql } = await import("drizzle-orm");
+const db = getDb();
+const q = async (s: ReturnType<typeof sql>) => (await db.execute(s)) as unknown as Record<string, any>[]; // eslint-disable-line @typescript-eslint/no-explicit-any
+type Err = { status?: number; message?: string };
+
+console.log("Migrations");
+await test("categories created from products, incl. legacy ones", async () => {
+  const names = (await q(sql`select name from categories order by name`)).map((r) => r.name);
+  for (const n of ["Co-ord sets", "Dresses", "Legacy"]) assert.ok(names.includes(n), n);
+});
+await test("admins moved to staff_members with full access; admins table dropped", async () => {
+  const staff = await q(sql`select email, role, access_mode, password_hash from staff_members`);
+  assert.equal(staff.length, 1);
+  assert.equal(staff[0].role, "admin");
+  assert.equal(staff[0].access_mode, "full");
+  assert.equal(staff[0].password_hash, null);
+  assert.equal((await q(sql`select to_regclass('public.admins') as t`))[0].t, null);
+});
+await test("category rename cascades to products", async () => {
+  await q(sql`update categories set name='Legacy pieces' where name='Legacy'`);
+  assert.equal((await q(sql`select category from products where id='berry-3'`))[0].category, "Legacy pieces");
+});
+
+console.log("Access rules");
+const core = await import("../lib/staff-core.ts");
+const member = (role: string, accessMode: string, permissions: string[] = [], email = "x@test.in") => ({
+  role,
+  accessMode,
+  permissions,
+  email,
+});
+await test("password hashing: verify right, reject wrong, rules", async () => {
+  const h = await core.hashPassword("berrys2026x");
+  assert.equal(await core.verifyPassword("berrys2026x", h), true);
+  assert.equal(await core.verifyPassword("berrys2026y", h), false);
+  assert.equal(await core.verifyPassword("x", null), false);
+  assert.ok(core.passwordProblem("short1"));
+  assert.ok(core.passwordProblem("onlyletterslong"));
+  assert.equal(core.passwordProblem("letters123x"), null);
+});
+await test("owner can do everything, whatever the row says", () => {
+  const owner = member("staff", "manual", [], "Owner@Berrys.test");
+  for (const k of ["settings", "team", "content", "delete_records"] as const)
+    assert.ok(core.can(owner, k), k);
+  assert.ok(core.hasFullAccess(owner));
+  assert.ok(core.canManageAdmins(owner));
+});
+await test("admin with Full access can do everything, but can't manage admins", () => {
+  const a = member("admin", "full");
+  for (const k of [...core.permissionKeys, ...core.adminAreaKeys]) assert.ok(core.can(a, k), k);
+  assert.equal(core.canManageAdmins(a), false);
+});
+await test("admin with chosen access only gets what was ticked", () => {
+  const a = member("admin", "manual", ["orders", "requests"]);
+  assert.ok(core.can(a, "orders") && core.can(a, "requests"));
+  for (const k of ["settings", "team", "products", "delete_records"] as const)
+    assert.equal(core.can(a, k), false, k);
+  assert.equal(core.accessSummary(a), "Chosen access (2)");
+});
+await test("staff Default access = the 10 standard permissions (no website content / admin areas)", () => {
+  const s = member("staff", "default");
+  assert.deepEqual(core.grantedAccess(s), core.staffDefaultPermissions);
+  assert.equal(core.staffDefaultPermissions.length, 10);
+  for (const k of ["content", "delete_categories", "settings", "requests"] as const)
+    assert.equal(core.can(s, k), false, k);
+});
+await test("staff with chosen access: ticked shop permissions only, never admin areas", () => {
+  const s = member("staff", "manual", ["orders", "settings", "team"]);
+  assert.equal(core.can(s, "orders"), true);
+  assert.equal(core.can(s, "settings"), false);
+  assert.equal(core.can(s, "team"), false);
+  assert.equal(core.can(s, "products"), false);
+});
+await test("dashboard sections map to the access they need", () => {
+  assert.equal(core.sectionAccess("/berrys-office-test/settings"), "settings");
+  assert.equal(core.sectionAccess("/berrys-office-test/orders/BRY-1"), "orders");
+  assert.equal(core.sectionAccess("/berrys-office-test/account"), null);
+  assert.equal(core.sectionAccess("/berrys-office-test"), null);
+});
+await test("ADMIN_PATH is sanitised", () => {
+  assert.equal(core.adminPath(), "berrys-office-test");
+  assert.equal(core.adminHref("orders"), "/berrys-office-test/orders");
+});
+
+console.log("Catalogue");
+const { bestPrice } = await import("../lib/offers.ts");
+await test("offers: best single offer wins, never below ₹1", () => {
+  const base = { id: "a", category: "Dresses", price: 1000 };
+  const o = (x: object) => ({
+    id: "",
+    name: "x",
+    active: true,
+    targets: [],
+    startsAt: new Date(),
+    endsAt: null,
+    createdAt: new Date(),
+    ...x,
+  });
+  const offers = [
+    o({ name: "10% all", type: "percent", value: 10, scope: "all" }),
+    o({ name: "₹250 dresses", type: "flat", value: 250, scope: "category", targets: ["Dresses"] }),
+    o({ name: "other", type: "percent", value: 50, scope: "product", targets: ["zzz"] }),
+  ];
+  assert.deepEqual(bestPrice(base, offers as never), { price: 750, offer: "₹250 dresses" });
+  assert.equal(bestPrice({ ...base, category: "Tops" }, offers as never).price, 900);
+  assert.equal(bestPrice(base, [o({ type: "flat", value: 99999, scope: "all" })] as never).price, 1);
+});
+const cat = await import("../lib/admin/catalog.ts");
+const store = await import("../lib/store-data.ts");
+await test("category sizes drive product sizes; offers show in storefront price", async () => {
+  await q(sql`update categories set sizes='{2-3Y,3-4Y}' where name='Dresses'`);
+  await cat.saveOffer({
+    name: "Dress week",
+    type: "percent",
+    value: 20,
+    scope: "category",
+    targets: ["Dresses"],
+    startsAt: new Date(Date.now() - 60000),
+    endsAt: null,
+    active: true,
+  });
+  const p = await store.getProduct("berry-2");
+  assert.deepEqual(p!.sizes.slice(0, 2), ["2-3Y", "3-4Y"]);
+  assert.equal(p!.price, 719);
+  assert.equal(p!.offer, "Dress week");
+});
+await test("saveProduct logs stock changes; search finds tags", async () => {
+  const id = await cat.saveProduct(
+    {
+      id: "",
+      name: "Rainbow Tee",
+      category: "Dresses",
+      gender: "girls",
+      tags: ["rainbow", "cotton"],
+      price: 500,
+      originalPrice: 600,
+      description: "",
+      images: ["/images/product-3.webp"],
+      badge: "",
+      color: "#112233",
+      active: true,
+      stock: { "2-3Y": 4, "3-4Y": 0 },
+    } as never,
+    "tester",
+  );
+  const moves = await q(sql`select change from stock_movements where product_id=${id}`);
+  assert.deepEqual(
+    moves.map((m) => m.change),
+    [4],
+  );
+  assert.ok((await store.queryProducts({ q: "cotton" })).products.some((x: { id: string }) => x.id === id));
+});
+await test("adjustStock can't go negative", async () => {
+  await cat.adjustStock("berry-1", "S", -2, "tester", "damaged");
+  await assert.rejects(cat.adjustStock("berry-1", "S", -50, "tester", ""));
+  assert.equal(
+    (await q(sql`select quantity from inventory where product_id='berry-1' and size='S'`))[0].quantity,
+    3,
+  );
+});
+await test("category with products can't be deleted (or requested for deletion)", async () => {
+  const [c] = await q(sql`select id from categories where name='Dresses'`);
+  await assert.rejects(cat.deleteCategory(c.id), (e: Err) => e.status === 409);
+  await assert.rejects(cat.assertCategoryDeletable(c.id), (e: Err) => e.status === 409);
+});
+
+console.log("Orders");
+const orders = await import("../lib/orders.ts");
+const adminOrders = await import("../lib/admin/orders.ts");
+const { checkoutSchema } = await import("../lib/validation.ts");
+let orderId = "";
+await test("checkout charges the offer price; history + stock movement recorded", async () => {
+  const o = await orders.createPendingOrder(
+    checkoutSchema.parse({
+      items: [{ productId: "berry-2", size: "M", quantity: 1 }],
+      customer: "Asha",
+      email: "a@b.co",
+      phone: "9876543210",
+      address: "12 Lake Road, Bengaluru",
+      pincode: "560038",
+    }),
+    null,
+    { mode: "demo", ready: true },
+  );
+  assert.equal(o.total, 719);
+  await orders.markOrderPaid(o.razorpay.orderId, "pay_mock_1");
+  const ev = (await adminOrders.orderHistory(o.orderId)).map((e: { status: string }) => e.status);
+  assert.deepEqual(ev.sort(), ["paid", "pending_payment"]);
+  assert.deepEqual(
+    (await q(sql`select change from stock_movements where order_id=${o.orderId}`)).map((m) => m.change),
+    [-1],
+  );
+  orderId = o.orderId;
+});
+await test("Orders badge counts paid orders waiting to be packed", async () => {
+  assert.equal(await adminOrders.newOrderCount(), 1);
+  await adminOrders.setOrderStatus(orderId, "packed", "tester");
+  assert.equal(await adminOrders.newOrderCount(), 0);
+});
+await test("fulfilment: packed → shipped with timestamps; can't go backwards", async () => {
+  await adminOrders.setOrderStatus(orderId, "shipped", "tester");
+  await assert.rejects(adminOrders.setOrderStatus(orderId, "packed", "tester"));
+  const [o] = await q(sql`select packed_at, shipped_at from orders where id=${orderId}`);
+  assert.ok(o.packed_at && o.shipped_at);
+});
+await test("refund (demo payment): status refunded; shipped order stock not restored", async () => {
+  const before = (await q(sql`select quantity from inventory where product_id='berry-2' and size='M'`))[0]
+    .quantity;
+  const rid = await adminOrders.refundOrder(orderId, "tester", "damaged");
+  assert.ok(String(rid).startsWith("rfnd_mock_"));
+  assert.equal((await q(sql`select status from orders where id=${orderId}`))[0].status, "refunded");
+  assert.equal(
+    (await q(sql`select quantity from inventory where product_id='berry-2' and size='M'`))[0].quantity,
+    before,
+  );
+  await assert.rejects(adminOrders.refundOrder(orderId, "tester", "again"));
+});
+
+console.log("Team & requests");
+const team = await import("../lib/admin/team.ts");
+const [ownerRow] = await q(sql`select id from staff_members where email='owner@berrys.test'`);
+let staffId = "";
+await test("add staff: email lower-cased, Default access, new-order emails on; duplicate refused", async () => {
+  const s = await team.addStaff(
+    "Staff@Gmail.com",
+    { role: "staff", accessMode: "default", permissions: [], active: true, notifyOrders: true },
+    "tester",
+  );
+  assert.equal(s.email, "staff@gmail.com");
+  assert.equal(s.accessMode, "default");
+  assert.equal(s.notifyOrders, true);
+  staffId = s.id;
+  await assert.rejects(
+    team.addStaff(
+      "staff@gmail.com",
+      { role: "staff", accessMode: "default", permissions: [], active: true, notifyOrders: true },
+      "t",
+    ),
+    (e: Err) => e.status === 409,
+  );
+});
+await test("owner can't be removed or demoted, and always keeps full access", async () => {
+  await assert.rejects(team.removeStaff(ownerRow.id));
+  await assert.rejects(
+    team.updateStaff(ownerRow.id, {
+      role: "staff",
+      accessMode: "default",
+      permissions: [],
+      active: true,
+      name: "",
+      notifyOrders: false,
+    }),
+  );
+  await team.updateStaff(ownerRow.id, {
+    role: "admin",
+    accessMode: "manual",
+    permissions: ["orders"],
+    active: true,
+    name: "Owner",
+    notifyOrders: false,
+  });
+  const [o] = await q(sql`select access_mode, permissions from staff_members where id=${ownerRow.id}`);
+  assert.equal(o.access_mode, "full");
+  assert.deepEqual(o.permissions, []);
+});
+await test("without an owner address, the last full-access admin can't lose full access", async () => {
+  const saved = process.env.STORE_OWNER_EMAIL;
+  process.env.STORE_OWNER_EMAIL = "";
+  try {
+    const a = await team.addStaff(
+      "admin2@test.in",
+      { role: "admin", accessMode: "full", permissions: [], active: true, notifyOrders: true },
+      "t",
+    );
+    await q(sql`update staff_members set access_mode='manual' where id=${ownerRow.id}`);
+    await assert.rejects(
+      team.updateStaff(a.id, {
+        role: "admin",
+        accessMode: "manual",
+        permissions: ["orders"],
+        active: true,
+        name: "",
+        notifyOrders: true,
+      }),
+      (e: Err) => e.status === 400,
+    );
+    await q(sql`update staff_members set access_mode='full' where id=${ownerRow.id}`);
+    await team.updateStaff(a.id, {
+      role: "admin",
+      accessMode: "manual",
+      permissions: ["orders", "requests"],
+      active: true,
+      name: "",
+      notifyOrders: true,
+    });
+    const [row] = await q(sql`select access_mode, permissions from staff_members where id=${a.id}`);
+    assert.equal(row.access_mode, "manual");
+    assert.deepEqual(row.permissions.sort(), ["orders", "requests"]);
+    await team.removeStaff(a.id);
+  } finally {
+    process.env.STORE_OWNER_EMAIL = saved;
+  }
+});
+await test("requests: one pending per target; decide once; returns the saved row", async () => {
+  const r = await team.createRequest("delete_product", "berry-3", "old stock", "staff@gmail.com");
+  assert.equal(r.type, "delete_product");
+  await assert.rejects(
+    team.createRequest("delete_product", "berry-3", "again", "x"),
+    (e: Err) => e.status === 409,
+  );
+  await team.decideRequest(r.id, "rejected", "owner", "keep it");
+  await assert.rejects(team.decideRequest(r.id, "approved", "owner", ""));
+});
+await test("category delete request: approving it deletes the empty category", async () => {
+  await q(sql`insert into categories (name) values ('Empty one')`);
+  const [c] = await q(sql`select id from categories where name='Empty one'`);
+  await cat.assertCategoryDeletable(c.id);
+  const r = await team.createRequest("delete_category", c.id, "not used", "staff@gmail.com");
+  assert.equal(await team.pendingRequestCount(), 1);
+  await team.decideRequest(r.id, "approved", "owner", "", (req) => cat.deleteCategory(req.targetId));
+  assert.equal((await q(sql`select count(*)::int n from categories where id=${c.id}`))[0].n, 0);
+  assert.equal(await team.pendingRequestCount(), 0);
+});
+
+console.log("Emails");
+const email = await import("../lib/email.ts");
+await test("request emails: approvers + owner, never the requester; order-handlers added for customer refunds", async () => {
+  await team.addStaff(
+    "boss@test.in",
+    { role: "admin", accessMode: "full", permissions: [], active: true, notifyOrders: true },
+    "t",
+  );
+  await team.addStaff(
+    "helper@test.in",
+    { role: "admin", accessMode: "manual", permissions: ["products"], active: true, notifyOrders: true },
+    "t",
+  );
+  await team.addStaff(
+    "off@test.in",
+    { role: "admin", accessMode: "full", permissions: [], active: false, notifyOrders: true },
+    "t",
+  );
+  const approvers = await email.teamAddresses("approvers");
+  assert.deepEqual(approvers.sort(), ["boss@test.in", "owner@berrys.test"]);
+  assert.deepEqual((await email.teamAddresses("approvers", "Boss@test.in")).sort(), ["owner@berrys.test"]);
+  // Default staff can handle orders, so they hear about customer refund requests too.
+  assert.deepEqual((await email.teamAddresses("orders")).sort(), [
+    "boss@test.in",
+    "owner@berrys.test",
+    "staff@gmail.com",
+  ]);
+});
+await test("no email set up: nothing is sent and nothing is counted", async () => {
+  assert.equal(email.emailConfigured(), false);
+  assert.equal(await email.sendMail({ to: "a@b.co", subject: "x", html: "x", kind: "test" }), false);
+  assert.equal((await q(sql`select count(*)::int n from email_sends`))[0].n, 0);
+});
+await test("emails-sent counter: last 24 h / 7 / 30 days, failures and kinds", async () => {
+  await q(sql`insert into email_sends (kind, ok, sent_at) values
+    ('sign-in-code', true, now()), ('sign-in-code', true, now() - interval '2 hours'),
+    ('team-request', true, now()), ('team-request', false, now()),
+    ('status-update', true, now() - interval '3 days'), ('status-update', true, now() - interval '20 days')`);
+  const s = await email.emailStats();
+  assert.equal(s.day, 3);
+  assert.equal(s.week, 4);
+  assert.equal(s.month, 5);
+  assert.equal(s.failedDay, 1);
+  assert.deepEqual(s.byKind, [
+    { kind: "sign-in-code", n: 2 },
+    { kind: "team-request", n: 1 },
+  ]);
+});
+
+console.log("Sign in with email");
+const codes = await import("../lib/login-codes.ts");
+await test("code: 6 digits, wrong refused, right signs in once", async () => {
+  const code = await codes.issueLoginCode("a@test.in");
+  assert.match(code, /^\d{6}$/);
+  const wrong = code === "000000" ? "111111" : "000000";
+  assert.equal(await codes.checkLoginCode("a@test.in", wrong), "wrong");
+  assert.equal(await codes.checkLoginCode("a@test.in", code), "ok");
+  assert.equal(await codes.checkLoginCode("a@test.in", code), "expired");
+});
+await test("code: 5 wrong tries lock it; a new code replaces the old one", async () => {
+  const first = await codes.issueLoginCode("b@test.in");
+  const second = await codes.issueLoginCode("b@test.in");
+  if (first !== second) assert.equal(await codes.checkLoginCode("b@test.in", first), "wrong");
+  for (let i = 0; i < 5; i++) await codes.checkLoginCode("b@test.in", "abcdef");
+  assert.equal(await codes.checkLoginCode("b@test.in", second), "expired");
+});
+await test("code: expired after 10 minutes", async () => {
+  const code = await codes.issueLoginCode("c@test.in");
+  await q(sql`update email_login_codes set expires_at = now() - interval '1 second' where email='c@test.in'`);
+  assert.equal(await codes.checkLoginCode("c@test.in", code), "expired");
+});
+
+console.log("Reports & content");
+const insights = await import("../lib/admin/insights.ts");
+await test("analytics queries run (refunded order excluded)", async () => {
+  assert.equal((await insights.salesSummary(30)).orders, 0);
+  assert.equal((await insights.salesByDay(7)).length, 7);
+  await insights.topProducts(30);
+  await insights.trendingProducts();
+  await insights.listCustomers({ page: 1 });
+  assert.equal((await insights.listPayments({ page: 1 })).refunded, 719);
+});
+const content = await import("../lib/content.ts");
+const settings = await import("../lib/settings.ts");
+await test("content and settings: defaults, save, help page override", async () => {
+  assert.equal((await content.getContent("home")).shelfTitle, "Find their next favourite.");
+  assert.equal((await settings.getSettings()).emailDailyLimit, 500);
+  await content.saveContent(
+    "help:contact",
+    { title: "Contact us", eyebrow: "HI", body: "## Email\n\nhello@x" },
+    "t",
+  );
+  assert.equal((await content.getHelpPage("contact"))!.title, "Contact us");
+});
+
+await finish(() => db.$client.end());

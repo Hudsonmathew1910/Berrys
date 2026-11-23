@@ -1,5 +1,5 @@
 import "server-only";
-import { and, eq } from "drizzle-orm";
+import { and, eq, gt, lt, sql } from "drizzle-orm";
 import type { Transporter } from "nodemailer";
 import { getDb, schema } from "@/db";
 import type { OrderStatus } from "@/db/schema";
@@ -9,7 +9,7 @@ import { serverEnv } from "@/lib/env";
 import { logError } from "@/lib/error-log";
 import { statusLabels } from "@/lib/order-status";
 import { getSettings, type Settings } from "@/lib/settings";
-import { adminHref } from "@/lib/staff-core";
+import { adminHref, can } from "@/lib/staff-core";
 
 type Order = typeof schema.orders.$inferSelect;
 type Item = typeof schema.orderItems.$inferSelect;
@@ -30,10 +30,73 @@ let transport: Transporter | null = null;
  * Sends one email through Gmail SMTP (SMTP_USER/SMTP_PASS) or Resend.
  * Returns false when no provider is configured; throws when sending fails.
  */
-export async function sendMail(mail: { to: string; subject: string; html: string; replyTo?: string }) {
+export async function sendMail(mail: {
+  to: string;
+  subject: string;
+  html: string;
+  replyTo?: string;
+  /** What kind of email, for the counter in Settings → Emails. */
+  kind?: string;
+}) {
   const smtp = serverEnv.smtp();
   const apiKey = serverEnv.resendApiKey();
   if (!smtp && !apiKey) return false;
+  const provider = smtp ? "smtp" : "resend";
+  try {
+    await deliver(mail, smtp, apiKey);
+    await countSend(mail.kind ?? "", true, provider);
+    return true;
+  } catch (e) {
+    await countSend(mail.kind ?? "", false, provider);
+    throw e;
+  }
+}
+
+/** Records one send for the counter (never throws), and now and then drops rows older than 60 days. */
+async function countSend(kind: string, ok: boolean, provider: string) {
+  try {
+    const db = getDb();
+    await db.insert(schema.emailSends).values({ kind, ok, provider });
+    if (Math.random() < 0.02)
+      await db
+        .delete(schema.emailSends)
+        .where(lt(schema.emailSends.sentAt, new Date(Date.now() - 60 * 864e5)));
+  } catch {
+    // The counter must never stop an email.
+  }
+}
+
+/** Emails sent in the last 24 hours / 7 days / 30 days, failures, and the last 24 hours by kind. */
+export async function emailStats() {
+  const t = schema.emailSends;
+  const since = (days: number) => new Date(Date.now() - days * 864e5);
+  const db = getDb();
+  const count = (days: number, ok: boolean) =>
+    db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(t)
+      .where(and(gt(t.sentAt, since(days)), eq(t.ok, ok)))
+      .then((rows) => rows[0].n);
+  const [day, week, month, failedDay, byKind] = await Promise.all([
+    count(1, true),
+    count(7, true),
+    count(30, true),
+    count(1, false),
+    db
+      .select({ kind: t.kind, n: sql<number>`count(*)::int` })
+      .from(t)
+      .where(and(gt(t.sentAt, since(1)), eq(t.ok, true)))
+      .groupBy(t.kind)
+      .orderBy(sql`count(*) desc`),
+  ]);
+  return { day, week, month, failedDay, byKind };
+}
+
+async function deliver(
+  mail: { to: string; subject: string; html: string; replyTo?: string },
+  smtp: ReturnType<typeof serverEnv.smtp>,
+  apiKey: string,
+) {
   const { siteName, supportEmail } = await getSettings();
   const replyTo = mail.replyTo ?? (supportEmail || undefined);
 
@@ -58,7 +121,7 @@ export async function sendMail(mail: { to: string; subject: string; html: string
       subject: mail.subject,
       html: mail.html,
     });
-    return true;
+    return;
   }
 
   const res = await fetch("https://api.resend.com/emails", {
@@ -73,13 +136,12 @@ export async function sendMail(mail: { to: string; subject: string; html: string
     }),
   });
   if (!res.ok) throw new Error(`Resend error ${res.status}: ${(await res.text()).slice(0, 300)}`);
-  return true;
 }
 
 /** Like sendMail, but a failure is written to the error log instead of thrown. */
 async function trySend(kind: string, ref: string, mail: Parameters<typeof sendMail>[0]) {
   try {
-    return await sendMail(mail);
+    return await sendMail({ kind, ...mail });
   } catch (e) {
     await logError("email", e, { path: kind, ref });
     return false;
@@ -158,6 +220,7 @@ export async function sendOrderConfirmation(order: Order, items: Item[]): Promis
     to: order.email,
     subject: `${demoTag(order)}Your ${s.siteName} order ${order.id} is confirmed`,
     html,
+    kind: "order-confirmation",
   });
 }
 
@@ -273,6 +336,25 @@ export async function sendLoginAlert(to: string, name: string, info: { ip: strin
   await trySend("login-alert", to, { to, subject: `New sign-in to ${s.siteName}`, html });
 }
 
+/** 6-digit code for "Continue with email". Throws if it can't be sent. */
+export async function sendLoginCode(to: string, code: string, minutes: number) {
+  const s = await getSettings();
+  const html = layout(
+    s,
+    `<h2 style="color:#193547;margin-top:0">Your sign-in code</h2>
+     <p>Enter this code on ${escape(s.siteName)} to sign in. It expires in ${minutes} minutes.</p>
+     <p style="font-size:30px;letter-spacing:8px;font-weight:bold;color:#183147;margin:18px 0">${code}</p>
+     <p style="color:#7d827e;font-size:13px">Didn’t try to sign in? You can ignore this email — nobody can sign in without this code. Never share it with anyone, including our team.</p>`,
+  );
+  const sent = await sendMail({
+    to,
+    subject: `${code} is your ${s.siteName} sign-in code`,
+    html,
+    kind: "sign-in-code",
+  });
+  if (!sent) throw new Error("Email is not set up.");
+}
+
 /** One-time code for "Forgot dashboard password". Throws if it can't be sent. */
 export async function sendDashboardResetCode(to: string, code: string) {
   const s = await getSettings();
@@ -283,7 +365,12 @@ export async function sendDashboardResetCode(to: string, code: string) {
      <p style="font-size:30px;letter-spacing:8px;font-weight:bold;color:#183147;margin:18px 0">${code}</p>
      <p style="color:#7d827e;font-size:13px">Didn’t ask for this? Ignore this email — your password stays the same. Never share this code.</p>`,
   );
-  const sent = await sendMail({ to, subject: `${code} is your ${s.siteName} dashboard reset code`, html });
+  const sent = await sendMail({
+    to,
+    subject: `${code} is your ${s.siteName} dashboard reset code`,
+    html,
+    kind: "dashboard-reset",
+  });
   if (!sent) throw new Error("Email is not set up.");
 }
 
@@ -291,20 +378,29 @@ export async function sendDashboardResetCode(to: string, code: string) {
 
 type RefundRequestRow = typeof schema.refundRequests.$inferSelect;
 
-/** Active team members' addresses (never the store owner address); admins only when asked. */
-async function teamAddresses(adminsOnly: boolean) {
+/**
+ * Who to email about a request: active team members who can approve requests
+ * ("approvers"), or also those who handle orders ("orders"), plus the store
+ * owner. Never the person who made the request.
+ */
+export async function teamAddresses(who: "approvers" | "orders", except?: string | null) {
   const team = await getDb()
     .select({
       email: schema.staffMembers.email,
       role: schema.staffMembers.role,
       permissions: schema.staffMembers.permissions,
+      accessMode: schema.staffMembers.accessMode,
     })
     .from(schema.staffMembers)
     .where(eq(schema.staffMembers.active, true));
-  return team
-    .filter((t) => (adminsOnly ? t.role === "admin" : t.role === "admin" || t.permissions.includes("orders")))
-    .map((t) => t.email)
-    .filter((e): e is string => !!e && !isOwnerEmail(e));
+  const list = team
+    .filter((m) => can(m, "requests") || (who === "orders" && can(m, "orders")))
+    .map((m) => m.email);
+  list.push(serverEnv.storeOwnerEmail());
+  const skip = except?.toLowerCase();
+  return [...new Set(list.filter((e): e is string => !!e).map((e) => e.toLowerCase()))].filter(
+    (e) => e !== skip,
+  );
 }
 
 function refundLinesTable(r: RefundRequestRow) {
@@ -337,7 +433,7 @@ export async function sendRefundRequested(order: Order, r: RefundRequestRow) {
      <p>Please check the reason and verify it so an admin can approve the refund.</p>
      ${button(link, "Review the request")}`,
   );
-  const team = await teamAddresses(false);
+  const team = await teamAddresses("orders");
   await Promise.all(
     team.map((to) =>
       trySend("refund-requested", order.id, {
@@ -364,7 +460,7 @@ export async function sendRefundRequested(order: Order, r: RefundRequestRow) {
 }
 
 /** Staff verified a request → admins are asked to approve. */
-export async function sendRefundVerified(order: Order, r: RefundRequestRow) {
+export async function sendRefundVerified(order: Order, r: RefundRequestRow, verifierEmail?: string | null) {
   const s = await getSettings();
   if (!emailConfigured()) return;
   const link = `${serverEnv.siteUrl()}${adminHref("requests")}`;
@@ -376,7 +472,7 @@ export async function sendRefundVerified(order: Order, r: RefundRequestRow) {
      ${refundLinesTable(r)}
      ${button(link, "Approve or reject")}`,
   );
-  const admins = await teamAddresses(true);
+  const admins = await teamAddresses("approvers", verifierEmail);
   await Promise.all(
     admins.map((to) =>
       trySend("refund-verified", order.id, {
@@ -410,4 +506,71 @@ export async function sendRefundDecision(order: Order, r: RefundRequestRow) {
     subject: `${demoTag(order)}${approved ? "Refund approved" : "Refund request update"} · ${order.id}`,
     html,
   });
+}
+
+// ---------------------------------------------------------------- staff requests
+
+type ApprovalRow = typeof schema.approvalRequests.$inferSelect;
+const requestTitles: Record<ApprovalRow["type"], string> = {
+  refund: "Refund order",
+  delete_order: "Delete order",
+  delete_product: "Delete product",
+  delete_category: "Delete category",
+};
+
+/** What the request is about, in words (order total / product or category name). */
+async function requestTarget(req: ApprovalRow) {
+  const db = getDb();
+  const id = escape(req.targetId);
+  if (req.type === "refund" || req.type === "delete_order") {
+    const [o] = await db
+      .select({ customer: schema.orders.customer, total: schema.orders.total, status: schema.orders.status })
+      .from(schema.orders)
+      .where(eq(schema.orders.id, req.targetId))
+      .limit(1);
+    return o
+      ? `Order <b>${id}</b> · ${escape(o.customer)} · ${money(o.total)} · ${escape(statusLabels[o.status] ?? o.status)}`
+      : `Order <b>${id}</b>`;
+  }
+  if (req.type === "delete_product") {
+    const [p] = await db
+      .select({ name: schema.products.name })
+      .from(schema.products)
+      .where(eq(schema.products.id, req.targetId))
+      .limit(1);
+    return `Product <b>${escape(p?.name ?? req.targetId)}</b> (${id})`;
+  }
+  const [c] = await db
+    .select({ name: schema.categories.name })
+    .from(schema.categories)
+    .where(eq(schema.categories.id, req.targetId))
+    .limit(1);
+  return `Category <b>${escape(c?.name ?? req.targetId)}</b>`;
+}
+
+/** A staff member asked for something they can't do themselves → admins who approve, and the owner. */
+export async function sendTeamRequest(req: ApprovalRow, requesterEmail?: string | null) {
+  if (!emailConfigured()) return;
+  const s = await getSettings();
+  const to = await teamAddresses("approvers", requesterEmail);
+  if (!to.length) return;
+  const title = requestTitles[req.type];
+  const html = layout(
+    s,
+    `<h2 style="color:#193547;margin-top:0">Waiting for your approval: ${title.toLowerCase()}</h2>
+     <p>${await requestTarget(req)}</p>
+     <p style="background:#f6f4ef;padding:10px 14px;border-radius:8px"><b>Reason:</b> ${escape(req.reason)}</p>
+     <p style="color:#7d827e;font-size:13px">Asked by ${escape(req.requestedBy)}</p>
+     ${button(`${serverEnv.siteUrl()}${adminHref("requests")}`, "Approve or reject")}`,
+  );
+  await Promise.all(
+    to.map((email) =>
+      trySend("team-request", req.id, {
+        to: email,
+        subject: `Approval needed: ${title} · ${req.targetId}`,
+        html,
+        replyTo: requesterEmail ?? undefined,
+      }),
+    ),
+  );
 }

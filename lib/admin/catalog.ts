@@ -212,7 +212,8 @@ export async function saveCategory(data: {
   }
 }
 
-export async function deleteCategory(id: string) {
+/** Throws if the category doesn't exist or still has products. */
+export async function assertCategoryDeletable(id: string) {
   const db = getDb();
   const [cat] = await db.select().from(categories).where(eq(categories.id, id)).limit(1);
   if (!cat) throw new HttpError(404, "Category not found.");
@@ -222,7 +223,12 @@ export async function deleteCategory(id: string) {
     .where(eq(products.category, cat.name));
   if (n > 0)
     throw new HttpError(409, `Move or delete its ${n} products first, or hide the category instead.`);
-  await db.delete(categories).where(eq(categories.id, id));
+  return cat;
+}
+
+export async function deleteCategory(id: string) {
+  const cat = await assertCategoryDeletable(id);
+  await getDb().delete(categories).where(eq(categories.id, id));
   return cat.name;
 }
 

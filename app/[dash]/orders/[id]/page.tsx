@@ -37,7 +37,8 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
     ["paid", "packed", "shipped", "delivered", "needs_refund"].includes(order.status) &&
     !!order.razorpayPaymentId;
   const canRefund = can(staff, "refunds");
-  const isAdmin = staff.role === "admin";
+  /** Deletes straight away (otherwise sends a request). */
+  const isAdmin = can(staff, "delete_records");
 
   return (
     <div className="dash-page">
@@ -65,7 +66,12 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
           <section className="dash-panel wide refund-panel" id="refund-requests">
             <h2>Customer refund requests</h2>
             {refunds.map((r) => (
-              <RefundRequestCard key={r.id} r={r} isAdmin={isAdmin} canVerify={can(staff, "orders")} />
+              <RefundRequestCard
+                key={r.id}
+                r={r}
+                isAdmin={can(staff, "requests")}
+                canVerify={can(staff, "orders")}
+              />
             ))}
           </section>
         )}

@@ -1,7 +1,15 @@
 import "server-only";
 import { randomBytes, scrypt as scryptCb, timingSafeEqual } from "node:crypto";
 import { promisify } from "node:util";
-import { permissionKeys, type Permission } from "@/db/schema";
+import {
+  accessModes,
+  adminAreaKeys,
+  permissionKeys,
+  type AccessKey,
+  type AccessMode,
+  type AdminArea,
+  type Permission,
+} from "@/db/schema";
 
 /** Pure staff helpers (no Next.js imports), shared by lib/staff.ts and scripts/tests. */
 type ScryptOpts = { N: number; r: number; p: number; maxmem: number };
@@ -11,7 +19,15 @@ const scrypt = promisify(scryptCb) as (
   len: number,
   o?: ScryptOpts,
 ) => Promise<Buffer>;
-export { permissionKeys, type Permission };
+export {
+  accessModes,
+  adminAreaKeys,
+  permissionKeys,
+  type AccessKey,
+  type AccessMode,
+  type AdminArea,
+  type Permission,
+};
 
 /** Labels for the permission checkboxes. */
 export const permissionLabels: Record<Permission, string> = {
@@ -26,7 +42,32 @@ export const permissionLabels: Record<Permission, string> = {
   content: "Website content",
   refunds: "Issue refunds (otherwise: request)",
   delete_products: "Delete products (otherwise: request)",
+  delete_categories: "Delete categories (otherwise: request)",
 };
+
+/** Extra areas that only an admin can be given. */
+export const adminAreaLabels: Record<AdminArea, string> = {
+  requests: "Approve requests & refunds",
+  team: "Team & access (shop staff only)",
+  settings: "Settings & payments",
+  errors: "Error log",
+  activity: "Activity log",
+  delete_records: "Delete orders & customers",
+};
+
+/** What shop staff get with "Default access". */
+export const staffDefaultPermissions: Permission[] = [
+  "orders",
+  "products",
+  "categories",
+  "offers",
+  "stock",
+  "payments",
+  "customers",
+  "analytics",
+  "refunds",
+  "delete_products",
+];
 
 /**
  * The secret dashboard address, from ADMIN_PATH (one URL segment, e.g.
@@ -101,15 +142,67 @@ export function passwordProblem(pw: string) {
   return null;
 }
 
-/** Admins can do everything; staff get the permissions ticked for them. */
-export function can(staff: { role: string; permissions: string[] }, perm: Permission) {
-  return staff.role === "admin" || staff.permissions.includes(perm);
+// ---------------------------------------------------------------- access
+
+type Member = { role: string; permissions: string[]; accessMode?: string | null; email?: string | null };
+
+const ownerEmail = () => process.env.STORE_OWNER_EMAIL?.trim().toLowerCase() || "";
+export const isOwnerMember = (s: { email?: string | null }) =>
+  !!s.email && ownerEmail().length > 0 && s.email.toLowerCase() === ownerEmail();
+
+/** The store owner, and admins set to "Full access", can do everything. */
+export function hasFullAccess(s: Member) {
+  return isOwnerMember(s) || (s.role === "admin" && s.accessMode !== "manual");
 }
 
-/** "admin" = admins only (Team, Requests, Activity, Settings, Error log). */
-export type Access = Permission | "admin";
-export function canAccess(staff: { role: string; permissions: string[] }, access: Access) {
-  return access === "admin" ? staff.role === "admin" : can(staff, access);
+/**
+ * Can this person do `key`? Staff: the default set or what was ticked
+ * (never the admin-only areas). Admins with chosen access: what was ticked.
+ */
+export function can(s: Member, key: AccessKey) {
+  if (hasFullAccess(s)) return true;
+  if (s.role !== "admin" && (adminAreaKeys as readonly string[]).includes(key)) return false;
+  if (s.role !== "admin" && s.accessMode === "default")
+    return (staffDefaultPermissions as string[]).includes(key);
+  return s.permissions.includes(key);
+}
+
+export type Access = AccessKey;
+
+/**
+ * The access a dashboard section needs, from its first path segment
+ * ("orders", "settings", …); null for pages everyone on the team can open.
+ * Section folders are named after their access key.
+ */
+export function sectionAccess(pathname: string): AccessKey | null {
+  const segment = pathname.split("/").filter(Boolean)[1] ?? "";
+  return ([...permissionKeys, ...adminAreaKeys] as readonly string[]).includes(segment)
+    ? (segment as AccessKey)
+    : null;
+}
+
+export const accessLabels: Record<AccessKey, string> = { ...permissionLabels, ...adminAreaLabels };
+
+/** Everything this person can do, in menu order. */
+export function grantedAccess(s: Member): AccessKey[] {
+  return [...permissionKeys, ...adminAreaKeys].filter((k) => can(s, k));
+}
+export const canAccess = can;
+
+/**
+ * Only the store owner changes admins (adds, edits, removes them). If no
+ * owner address is set, full-access admins can.
+ */
+export function canManageAdmins(s: Member) {
+  return isOwnerMember(s) || (!ownerEmail() && hasFullAccess(s));
+}
+
+/** Short description of someone's access for lists. */
+export function accessSummary(s: Member) {
+  if (isOwnerMember(s)) return "Owner — full access";
+  if (hasFullAccess(s)) return "Full access";
+  if (s.role !== "admin" && s.accessMode === "default") return "Default staff access";
+  return `Chosen access (${s.permissions.length})`;
 }
 
 export const roleLabels = { admin: "Admin", staff: "Shop staff" } as const;

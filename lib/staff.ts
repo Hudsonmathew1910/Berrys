@@ -29,7 +29,14 @@ export const getStaffForViewer = cache(async (): Promise<Staff | null> => {
     if (!staff) {
       [staff] = await db
         .insert(staffMembers)
-        .values({ email, name: viewer.name, role: "admin", createdBy: "STORE_OWNER_EMAIL" })
+        .values({
+          email,
+          name: viewer.name,
+          role: "admin",
+          accessMode: "full",
+          notifyOrders: false,
+          createdBy: "STORE_OWNER_EMAIL",
+        })
         .onConflictDoNothing()
         .returning();
       staff ??= (await db.select().from(staffMembers).where(eq(staffMembers.email, email)).limit(1))[0];

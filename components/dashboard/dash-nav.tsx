@@ -51,8 +51,14 @@ export function DashNav({ items, base }: { items: NavItem[]; base: string }) {
         return (
           <Link key={it.key} href={it.href} className={active ? "active" : ""}>
             <Icon size={17} />
-            {it.label}
-            {!!it.badge && <span className="nav-badge">{it.badge}</span>}
+            <span className="nav-label">
+              {it.label}
+              {!!it.badge && (
+                <span className="nav-badge" aria-label={`${it.badge} new`}>
+                  {it.badge > 99 ? "99+" : it.badge}
+                </span>
+              )}
+            </span>
           </Link>
         );
       })}

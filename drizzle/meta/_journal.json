@@ -92,6 +92,20 @@
       "when": 1795116892045,
       "tag": "0012_refund_requests",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1795422878971,
+      "tag": "0013_email_login_codes",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1795425185709,
+      "tag": "0014_team_access_email_counter",
+      "breakpoints": true
     }
   ]
 }

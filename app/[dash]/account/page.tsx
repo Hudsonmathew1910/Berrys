@@ -1,5 +1,12 @@
 import { isOwnerEmail } from "@/lib/auth";
-import { permissionLabels, requirePage, roleLabels } from "@/lib/staff";
+import {
+  accessLabels,
+  accessSummary,
+  grantedAccess,
+  hasFullAccess,
+  requirePage,
+  roleLabels,
+} from "@/lib/staff";
 import { ActionForm } from "@/components/dashboard/action-form";
 import { changePasswordAction, myNotificationsAction } from "../actions";
 
@@ -33,14 +40,14 @@ export default async function MyAccountPage() {
         <section className="dash-panel">
           <h2>My access</h2>
           <p>
-            <b>{staff.email}</b> · {staff.role === "admin" ? "Shop admin — full access" : roleLabels.staff}
+            <b>{staff.email}</b> · {roleLabels[staff.role]} — {accessSummary(staff)}
           </p>
-          {staff.role === "staff" && (
+          {!hasFullAccess(staff) && (
             <ul>
-              {staff.permissions.map((p) => (
-                <li key={p}>{permissionLabels[p]}</li>
+              {grantedAccess(staff).map((p) => (
+                <li key={p}>{accessLabels[p]}</li>
               ))}
-              {!staff.permissions.length && <li className="muted">No permissions yet — ask an admin.</li>}
+              {!grantedAccess(staff).length && <li className="muted">No access yet — ask an admin.</li>}
             </ul>
           )}
         </section>

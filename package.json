@@ -11,6 +11,8 @@
     "start": "next start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
+    "test": "tsx --conditions=react-server tests/dashboard.test.mts && tsx --conditions=react-server tests/security.test.mts",
+    "test:live": "tsx --conditions=react-server tests/concurrency.live.mts",
     "format": "prettier --write .",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
@@ -34,6 +36,8 @@
     "zod": "^4.6.7"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "0.5.16",
+    "@electric-sql/pglite-socket": "0.2.19",
     "@tailwindcss/postcss": "4.2.1",
     "@types/node": "22.19.19",
     "@types/nodemailer": "^8.0.2",
@@ -44,6 +48,7 @@
     "eslint-config-next": "^16.4.6",
     "prettier": "^3.3.3",
     "tailwindcss": "4.2.1",
+    "tsx": "4.22.1",
     "typescript": "5.9.3"
   },
   "type": "module"

@@ -10,6 +10,7 @@ import {
   sendRefundDecision,
   sendRefundVerified,
   sendStatusUpdate,
+  sendTeamRequest,
 } from "@/lib/email";
 import { decideRefundRequest, verifyRefundRequest } from "@/lib/refunds";
 import { razorpayConfigured } from "@/lib/orders";
@@ -19,7 +20,17 @@ import { z, ZodError } from "zod";
 import { getDb, schema } from "@/db";
 import { and, eq, gt, lt, sql } from "drizzle-orm";
 import { createHash, randomInt, timingSafeEqual } from "node:crypto";
-import { errorSources, orderStatuses, permissionKeys, type ErrorSource, type Permission } from "@/db/schema";
+import {
+  accessModes,
+  adminAreaKeys,
+  errorSources,
+  orderStatuses,
+  permissionKeys,
+  type AccessKey,
+  type AccessMode,
+  type ApprovalType,
+  type ErrorSource,
+} from "@/db/schema";
 import * as cat from "@/lib/admin/catalog";
 import * as ord from "@/lib/admin/orders";
 import * as team from "@/lib/admin/team";
@@ -37,10 +48,12 @@ import { isOwnerEmail } from "@/lib/auth";
 import { HttpError } from "@/lib/http-error";
 import { rateLimit } from "@/lib/rate-limit";
 import {
+  accessSummary,
   actorName,
   adminHref,
   adminPath,
   can,
+  canManageAdmins,
   getStaffForViewer,
   hashPassword,
   lockDashboard,
@@ -255,6 +268,14 @@ export async function myNotificationsAction(_: ActionResult, f: FormData) {
   });
 }
 
+// ---------------------------------------------------------------- staff → admin requests
+
+/** Saves a request for an admin and emails the admins who can approve it (and the owner). */
+async function sendRequest(staff: Staff, type: ApprovalType, targetId: string, reason: string) {
+  const req = await team.createRequest(type, targetId, reason, actorName(staff));
+  after(() => sendTeamRequest(req, staff.email));
+}
+
 // ---------------------------------------------------------------- orders
 
 export async function orderStatusAction(_: ActionResult, f: FormData) {
@@ -303,26 +324,26 @@ export async function refundAction(_: ActionResult, f: FormData) {
       after(() => sendStatusUpdate(id, "refunded"));
       return done(`Refunded (${refundId}).`);
     }
-    await team.createRequest("refund", id, reason, actorName(staff));
+    await sendRequest(staff, "refund", id, reason);
     await logActivity(actorName(staff), "Requested refund", id, reason);
     return done("Refund request sent to an admin.");
   });
 }
 
-/** Admins delete straight away; staff with Orders permission send a request to an admin. */
+/** With "Delete orders & customers" it's deleted straight away; otherwise a request goes to an admin. */
 export async function deleteOrderAction(_: ActionResult, f: FormData): Promise<ActionResult> {
   const id = str(f, "orderId");
   let deleted = false;
   const result = await run("orders", async (staff) => {
     const reason = str(f, "reason").slice(0, 500);
-    if (staff.role === "admin") {
+    if (can(staff, "delete_records")) {
       const o = await ord.deleteOrder(id, actorName(staff));
       await logActivity(actorName(staff), o.isDemo ? "Deleted demo order" : "Deleted order", id, reason);
       deleted = true;
       return done(`Order ${id} deleted.`);
     }
     if (!reason) return { error: "Please give a reason for the request." };
-    await team.createRequest("delete_order", id, reason, actorName(staff));
+    await sendRequest(staff, "delete_order", id, reason);
     await logActivity(actorName(staff), "Requested order deletion", id, reason);
     return done("Delete request sent to an admin.");
   });
@@ -333,7 +354,7 @@ export async function deleteOrderAction(_: ActionResult, f: FormData): Promise<A
 
 /** Admins: remove every expired / cancelled (never paid) order in one go. */
 export async function deleteUnpaidOrdersAction() {
-  return run("admin", async (staff) => {
+  return run("delete_records", async (staff) => {
     const n = await ord.deleteUnpaidOrders(actorName(staff));
     await logActivity(actorName(staff), "Deleted unpaid orders", "", `${n} expired/cancelled`);
     return done(
@@ -352,14 +373,14 @@ export async function verifyRefundRequestAction(_: ActionResult, f: FormData) {
     const req = await verifyRefundRequest(str(f, "id"), actorName(staff), note);
     await logActivity(actorName(staff), "Verified refund request", req.orderId, note);
     const order = await orderRow(req.orderId);
-    if (order) after(() => sendRefundVerified(order, req));
+    if (order) after(() => sendRefundVerified(order, req, staff.email));
     return done("Verified — an admin has been asked to approve it.");
   });
 }
 
 /** Admins: accept or reject. The customer is emailed either way. */
 export async function decideRefundRequestAction(_: ActionResult, f: FormData) {
-  return run("admin", async (staff) => {
+  return run("requests", async (staff) => {
     const decision = str(f, "decision") === "approve" ? "approved" : "rejected";
     const note = str(f, "note").slice(0, 500);
     if (decision === "rejected" && note.length < 3)
@@ -389,7 +410,7 @@ const orderRow = async (id: string) =>
 /** Admins only. Orders are kept for the records, without the account link. */
 export async function deleteCustomerAction(_: ActionResult, f: FormData): Promise<ActionResult> {
   let deleted = false;
-  const result = await run("admin", async (staff) => {
+  const result = await run("delete_records", async (staff) => {
     const u = await deleteCustomer(str(f, "userId"));
     await logActivity(actorName(staff), "Deleted customer account", u.email ?? u.phone ?? u.id);
     deleted = true;
@@ -431,7 +452,7 @@ export async function deleteProductAction(_: ActionResult, f: FormData) {
       return done(`Deleted “${name}”.`);
     }
     if (!reason) return { error: "Please give a reason for the request." };
-    await team.createRequest("delete_product", id, reason, actorName(staff));
+    await sendRequest(staff, "delete_product", id, reason);
     await logActivity(actorName(staff), "Requested product deletion", id, reason);
     return done("Delete request sent to an admin. You can hide the product meanwhile.");
   });
@@ -474,11 +495,21 @@ export async function saveCategoryAction(_: ActionResult, f: FormData) {
   });
 }
 
+/** Deletes with the "delete_categories" permission; otherwise sends a request to admins. */
 export async function deleteCategoryAction(_: ActionResult, f: FormData) {
   return run("categories", async (staff) => {
-    const name = await cat.deleteCategory(str(f, "id"));
-    await logActivity(actorName(staff), "Deleted category", name);
-    return done(`Deleted “${name}”.`);
+    const id = str(f, "id");
+    const reason = str(f, "reason").slice(0, 500);
+    if (can(staff, "delete_categories")) {
+      const name = await cat.deleteCategory(id);
+      await logActivity(actorName(staff), "Deleted category", name, reason);
+      return done(`Deleted “${name}”.`);
+    }
+    if (!reason) return { error: "Please give a reason for the request." };
+    await cat.assertCategoryDeletable(id);
+    await sendRequest(staff, "delete_category", id, reason);
+    await logActivity(actorName(staff), "Requested category deletion", id, reason);
+    return done("Delete request sent to an admin. You can hide the category meanwhile.");
   });
 }
 
@@ -600,28 +631,50 @@ export async function resetContentAction(_: ActionResult, f: FormData) {
 
 // ---------------------------------------------------------------- team (admins only)
 
-const permsFrom = (f: FormData) =>
-  f
-    .getAll("permissions")
-    .map(String)
-    .filter((p): p is Permission => (permissionKeys as readonly string[]).includes(p));
+/** Role, access mode and ticked access from the team form, made consistent. */
+function accessFrom(f: FormData) {
+  const role = z.enum(["admin", "staff"]).parse(str(f, "role"));
+  const asked = z.enum(accessModes).catch("manual").parse(str(f, "accessMode"));
+  const accessMode: AccessMode =
+    role === "admin" ? (asked === "manual" ? "manual" : "full") : asked === "manual" ? "manual" : "default";
+  const allowed: readonly string[] =
+    role === "admin" ? [...permissionKeys, ...adminAreaKeys] : permissionKeys;
+  const permissions =
+    accessMode === "manual"
+      ? [...new Set(f.getAll("permissions").map(String))].filter((p): p is AccessKey => allowed.includes(p))
+      : [];
+  return { role, accessMode, permissions };
+}
+
+/** Only the owner adds, changes or removes admins. */
+function assertCanManage(staff: Staff, ...roles: string[]) {
+  if (roles.includes("admin") && !canManageAdmins(staff))
+    throw new HttpError(403, "Only the store owner can add or change admins.");
+}
 
 export async function addStaffAction(_: ActionResult, f: FormData) {
-  return run("admin", async (staff) => {
+  return run("team", async (staff) => {
     const email = z.string().trim().toLowerCase().email("Enter a valid Google email.").parse(str(f, "email"));
-    const role = z.enum(["admin", "staff"]).parse(str(f, "role"));
-    await team.addStaff(email, role, permsFrom(f), actorName(staff));
-    await logActivity(actorName(staff), `Added ${role}`, email);
+    const access = accessFrom(f);
+    assertCanManage(staff, access.role);
+    await team.addStaff(
+      email,
+      { ...access, active: f.get("active") === "on", notifyOrders: f.get("notifyOrders") === "on" },
+      actorName(staff),
+    );
+    await logActivity(actorName(staff), `Added ${access.role}`, email, accessSummary(access));
     return done(`${email} added. They log in with that Google account and create their dashboard password.`);
   });
 }
 
 export async function updateStaffAction(_: ActionResult, f: FormData) {
-  return run("admin", async (staff) => {
-    const role = z.enum(["admin", "staff"]).parse(str(f, "role"));
-    const s = await team.updateStaff(str(f, "id"), {
-      role,
-      permissions: permsFrom(f),
+  return run("team", async (staff) => {
+    const id = str(f, "id");
+    const current = await team.getStaff(id);
+    const access = accessFrom(f);
+    assertCanManage(staff, current.role, access.role);
+    const s = await team.updateStaff(id, {
+      ...access,
       active: f.get("active") === "on",
       name: str(f, "name").slice(0, 80),
       notifyOrders: f.get("notifyOrders") === "on",
@@ -630,23 +683,27 @@ export async function updateStaffAction(_: ActionResult, f: FormData) {
       actorName(staff),
       "Updated team member",
       s.email ?? s.id,
-      `${role}: ${permsFrom(f).join(", ")}`,
+      `${access.role}: ${accessSummary(access)}${access.accessMode === "manual" ? ` — ${access.permissions.join(", ")}` : ""}`,
     );
     return done("Saved.");
   });
 }
 
 export async function resetStaffPasswordAction(_: ActionResult, f: FormData) {
-  return run("admin", async (staff) => {
-    const s = await team.resetStaffPassword(str(f, "id"));
+  return run("team", async (staff) => {
+    const id = str(f, "id");
+    if (id !== staff.id) assertCanManage(staff, (await team.getStaff(id)).role);
+    const s = await team.resetStaffPassword(id);
     await logActivity(actorName(staff), "Reset dashboard password", s.email ?? s.id);
     return done(`Password reset. ${s.email} will create a new one on their next visit.`);
   });
 }
 
 export async function removeStaffAction(_: ActionResult, f: FormData) {
-  return run("admin", async (staff) => {
-    const s = await team.removeStaff(str(f, "id"));
+  return run("team", async (staff) => {
+    const id = str(f, "id");
+    assertCanManage(staff, (await team.getStaff(id)).role);
+    const s = await team.removeStaff(id);
     await logActivity(actorName(staff), "Removed team member", s.email ?? s.id);
     return done("Removed from the team.");
   });
@@ -654,7 +711,7 @@ export async function removeStaffAction(_: ActionResult, f: FormData) {
 
 /** Approve (and carry out) or reject a staff request. */
 export async function decideRequestAction(_: ActionResult, f: FormData) {
-  return run("admin", async (staff) => {
+  return run("requests", async (staff) => {
     const req = await team.getRequest(str(f, "id"));
     if (!req || req.status !== "pending") return { error: "This request was already handled." };
     const decision = str(f, "decision") === "approve" ? "approved" : "rejected";
@@ -664,7 +721,9 @@ export async function decideRequestAction(_: ActionResult, f: FormData) {
         ? ord.refundOrder(r.targetId, actorName(staff), r.reason)
         : r.type === "delete_order"
           ? ord.deleteOrder(r.targetId, actorName(staff))
-          : cat.deleteProduct(r.targetId),
+          : r.type === "delete_category"
+            ? cat.deleteCategory(r.targetId)
+            : cat.deleteProduct(r.targetId),
     );
     if (decision === "approved" && req.type === "refund")
       after(() => sendStatusUpdate(req.targetId, "refunded"));
@@ -692,6 +751,7 @@ const settingSections = {
     "dashboardPasswordReset",
     "emailSignIn",
   ],
+  emailLimit: ["emailDailyLimit"],
   maintenance: ["maintenance", "maintenanceMessage"],
   logs: ["errorLogDays"],
 } as const satisfies Record<string, readonly (keyof Settings)[]>;
@@ -705,7 +765,7 @@ const booleanSettings = new Set<keyof Settings>([
 ]);
 
 export async function saveSettingsAction(_: ActionResult, f: FormData) {
-  return run("admin", async (staff) => {
+  return run("settings", async (staff) => {
     const section = str(f, "section") as keyof typeof settingSections;
     const keys = settingSections[section];
     if (!keys) return { error: "Unknown settings section." };
@@ -732,7 +792,7 @@ export async function saveSettingsAction(_: ActionResult, f: FormData) {
 
 /** Razorpay on/off. Off = demo payments for everyone (demo orders are deleted after a minute). */
 export async function paymentModeAction(_: ActionResult, f: FormData) {
-  return run("admin", async (staff) => {
+  return run("settings", async (staff) => {
     const mode: Settings["paymentMode"] = f.get("on") === "on" ? "razorpay" : "demo";
     await updateSettings({ paymentMode: mode }, actorName(staff));
     await logActivity(
@@ -751,7 +811,7 @@ export async function paymentModeAction(_: ActionResult, f: FormData) {
 }
 
 export async function clearErrorsAction(_: ActionResult, f: FormData) {
-  return run("admin", async (staff) => {
+  return run("errors", async (staff) => {
     const source = str(f, "source");
     const valid = (errorSources as readonly string[]).includes(source) ? (source as ErrorSource) : undefined;
     await clearErrors(valid);

@@ -1,6 +1,6 @@
 import { listCategoriesWithCounts } from "@/lib/admin/catalog";
 import { DEFAULT_SIZES } from "@/lib/catalog";
-import { requirePage } from "@/lib/staff";
+import { can, requirePage } from "@/lib/staff";
 import { ActionForm } from "@/components/dashboard/action-form";
 import { deleteCategoryAction, saveCategoryAction } from "../actions";
 
@@ -40,7 +40,8 @@ function CategoryFields({ c }: { c?: Cat }) {
 }
 
 export default async function CategoriesPage() {
-  await requirePage("categories");
+  const staff = await requirePage("categories");
+  const canDelete = can(staff, "delete_categories");
   const cats = await listCategoriesWithCounts();
   return (
     <div className="dash-page">
@@ -63,12 +64,28 @@ export default async function CategoriesPage() {
               <CategoryFields c={c} />
               <button className="outline">Save</button>
             </ActionForm>
-            {c.products === 0 && (
-              <ActionForm action={deleteCategoryAction} confirm={`Delete the category “${c.name}”?`}>
-                <input type="hidden" name="id" value={c.id} />
-                <button className="text-link danger">Delete category</button>
-              </ActionForm>
-            )}
+            {c.products === 0 &&
+              (canDelete ? (
+                <ActionForm action={deleteCategoryAction} confirm={`Delete the category “${c.name}”?`}>
+                  <input type="hidden" name="id" value={c.id} />
+                  <button className="text-link danger">Delete category</button>
+                </ActionForm>
+              ) : (
+                <details className="request-delete">
+                  <summary className="text-link">Request deletion</summary>
+                  <ActionForm action={deleteCategoryAction}>
+                    <input type="hidden" name="id" value={c.id} />
+                    <label>
+                      Reason
+                      <input name="reason" maxLength={500} required />
+                    </label>
+                    <small className="muted">
+                      An admin will review it. You can hide the category meanwhile.
+                    </small>
+                    <button className="outline">Send delete request</button>
+                  </ActionForm>
+                </details>
+              ))}
           </section>
         ))}
         <section className="dash-panel highlight">
