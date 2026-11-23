@@ -1989,3 +1989,92 @@ html {
     font-size: 16px;
   }
 }
+
+/* ---- Continue with email (login page + header menu) ---- */
+.email-signin {
+  width: 100%;
+  max-width: 380px;
+  margin: 14px auto 0;
+  display: grid;
+  gap: 10px;
+}
+.email-signin-field {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 14px;
+  height: 46px;
+  background: #fff;
+  border: 1px solid #d4d6cf;
+  color: var(--muted);
+  transition: border-color 0.15s;
+}
+.email-signin-field:focus-within {
+  border-color: var(--navy);
+}
+.email-signin-field input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  font: inherit;
+  font-size: 15px;
+  color: var(--ink);
+}
+.email-signin .primary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 46px;
+}
+.email-signin .form-error {
+  margin: 0;
+  font-size: 12px;
+}
+.header-email-signin {
+  margin-top: 8px;
+  padding: 10px;
+  background: #fff;
+  border: 1px solid #e3e2da;
+  border-radius: 10px;
+  box-shadow: 0 10px 25px -4px rgba(24, 49, 71, 0.12);
+}
+.header-signin-or {
+  display: block;
+  text-align: center;
+  font-size: 11px;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+.email-signin.compact {
+  margin: 0;
+  max-width: none;
+  gap: 8px;
+}
+.email-signin.compact .email-signin-field {
+  height: 40px;
+  border-radius: 8px;
+}
+.email-signin.compact .email-signin-field input {
+  font-size: 14px;
+}
+.email-signin.compact .primary {
+  min-height: 40px;
+  border-radius: 8px;
+  font-size: 12px;
+}
+.header-login-dropdown {
+  min-width: 260px;
+}
+@media (max-width: 760px) {
+  .email-signin-field input,
+  .email-signin.compact .email-signin-field input {
+    font-size: 16px; /* no iOS zoom */
+  }
+  .header-login-dropdown {
+    min-width: 250px;
+  }
+}

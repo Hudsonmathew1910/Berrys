@@ -5,6 +5,7 @@ import { serverEnv } from "@/lib/env";
 import { firebaseConfig } from "@/lib/firebase-verify";
 import { formatIndianMobile } from "@/lib/phone";
 import { safeNext } from "@/lib/safe-next";
+import { getSettings } from "@/lib/settings";
 import { LoginForm } from "./login-form";
 
 export const metadata: Metadata = { title: "Login — Berry’s", robots: { index: false } };
@@ -41,6 +42,7 @@ export default async function LoginPage({
       next={next}
       error={error ? (errors[error] ?? "Something went wrong. Please try again.") : ""}
       googleEnabled={serverEnv.googleConfigured()}
+      emailEnabled={(await getSettings()).emailSignIn}
       firebase={firebaseConfig()}
       viewer={
         linking && viewer

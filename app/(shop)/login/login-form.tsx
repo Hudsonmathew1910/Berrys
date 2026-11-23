@@ -2,6 +2,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, LogOut } from "lucide-react";
+import { EmailSignIn } from "@/components/shop/email-sign-in";
 import { GoogleIcon } from "@/components/shop/google-icon";
 import { PhoneOtp, type FirebaseConfig } from "./phone-otp";
 
@@ -9,12 +10,14 @@ type Props = {
   next: string;
   error: string;
   googleEnabled: boolean;
+  /** "Continue with email" (Dashboard → Settings → Emails). */
+  emailEnabled: boolean;
   firebase: FirebaseConfig | null;
   /** Set when a logged-in visitor must add the missing method (required before buying). */
   viewer: { email: string | null; phone: string | null } | null;
 };
 
-export function LoginForm({ next, error, googleEnabled, firebase, viewer }: Props) {
+export function LoginForm({ next, error, googleEnabled, emailEnabled, firebase, viewer }: Props) {
   const router = useRouter();
   const googleHref = `/auth/google?next=${encodeURIComponent(next)}`;
   const done = () => {
@@ -34,7 +37,8 @@ export function LoginForm({ next, error, googleEnabled, firebase, viewer }: Prop
             <div className="eyebrow">WELCOME TO BERRY’S</div>
             <h1>Login or sign up.</h1>
             <p>
-              Use your Google account or your mobile number. New here? Your account is created automatically.
+              Use your Google account{emailEnabled ? " or your email address" : ""}. New here? Your account is
+              created automatically.
             </p>
             {error && <p className="form-error">{error}</p>}
             {googleEnabled && (
@@ -43,13 +47,23 @@ export function LoginForm({ next, error, googleEnabled, firebase, viewer }: Prop
                 Continue with Google
               </a>
             )}
+            {emailEnabled && (
+              <>
+                {googleEnabled && (
+                  <div className="auth-divider">
+                    <span>or use your email</span>
+                  </div>
+                )}
+                <EmailSignIn next={next} />
+              </>
+            )}
             {googleEnabled && firebase && (
               <div className="auth-divider">
                 <span>or use your mobile number</span>
               </div>
             )}
             {firebase && <PhoneOtp config={firebase} onVerified={done} />}
-            {!googleEnabled && !firebase && (
+            {!googleEnabled && !firebase && !emailEnabled && (
               <p className="form-error">
                 Login isn’t configured yet. Add Google or Firebase settings to .env.
               </p>

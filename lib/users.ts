@@ -53,6 +53,9 @@ export async function loginWithGoogle(p: GoogleProfile): Promise<User> {
       if (existing.googleSub && existing.googleSub !== p.sub) {
         throw new HttpError(409, "This email is linked to a different Google account.");
       }
+      // Google proves who owns this email: sign out every session that an
+      // email-only login (which has no code check yet) may have opened.
+      if (!existing.googleSub) await tx.delete(sessions).where(eq(sessions.userId, existing.id));
       const [u] = await tx
         .update(users)
         .set({ ...googleFields(p, existing), lastLoginAt: new Date() })
@@ -61,6 +64,36 @@ export async function loginWithGoogle(p: GoogleProfile): Promise<User> {
       return u;
     }
     const [created] = await tx.insert(users).values(googleFields(p)).returning();
+    return created;
+  });
+}
+
+/**
+ * Log in (or sign up) with just an email address. One account per email:
+ * the same account whether the person uses Google or email.
+ * TODO: verify a one-time code sent to the email before calling this.
+ */
+export async function loginWithEmail(rawEmail: string): Promise<User> {
+  const email = rawEmail.trim().toLowerCase();
+  return getDb().transaction(async (tx) => {
+    const [existing] = await tx.select().from(users).where(eq(users.email, email)).for("update");
+    if (existing) {
+      const [u] = await tx
+        .update(users)
+        .set({ lastLoginAt: new Date() })
+        .where(eq(users.id, existing.id))
+        .returning();
+      return u;
+    }
+    const name = email
+      .split("@")[0]
+      .replace(/[._+-]+/g, " ")
+      .replace(/\d+/g, "")
+      .trim();
+    const [created] = await tx
+      .insert(users)
+      .values({ email, name: name ? name.replace(/(^|\s)\S/g, (c) => c.toUpperCase()) : "" })
+      .returning();
     return created;
   });
 }

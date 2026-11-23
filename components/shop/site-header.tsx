@@ -4,12 +4,13 @@ import { usePathname, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 import { ArrowUpRight, Heart, LayoutDashboard, Menu, Search, ShoppingBag, Star, User, X } from "lucide-react";
 import { useBag, useLikes } from "@/components/store/bag";
+import { EmailSignIn } from "./email-sign-in";
 import { GoogleIcon } from "./google-icon";
 
 export type HeaderViewer = { name: string; email: string | null } | null;
 
 /** "Login" dropdown button that reveals "Continue with Google" on hover or click */
-function HeaderLoginMenu() {
+function HeaderLoginMenu({ emailSignIn }: { emailSignIn: boolean }) {
   const pathname = usePathname();
   const search = useSearchParams();
   const here = pathname + (search.size ? `?${search}` : "");
@@ -31,7 +32,10 @@ function HeaderLoginMenu() {
     <div
       className={`header-login-wrap ${open ? "open" : ""}`}
       onMouseEnter={() => setOpen(true)}
-      onMouseLeave={() => setOpen(false)}
+      // Keep it open while typing an email, even if the mouse wanders off.
+      onMouseLeave={(e) => {
+        if (!e.currentTarget.contains(document.activeElement)) setOpen(false);
+      }}
     >
       <button
         type="button"
@@ -59,6 +63,12 @@ function HeaderLoginMenu() {
           <GoogleIcon size={18} />
           <span>Continue with Google</span>
         </a>
+        {emailSignIn && (
+          <div className="header-email-signin">
+            <span className="header-signin-or">or</span>
+            <EmailSignIn next={next} compact />
+          </div>
+        )}
       </div>
     </div>
   );
@@ -71,10 +81,13 @@ export function SiteHeader({
   announcement,
   dashboardHref,
   brand = { name: "Berry’s", logo: "" },
+  emailSignIn = false,
 }: {
   viewer: HeaderViewer;
   /** Website name and logo from Dashboard → Settings. */
   brand?: { name: string; logo: string };
+  /** Show "Continue with email" in the Sign in menu. */
+  emailSignIn?: boolean;
   categories: string[];
   announcement: string[];
   /** Only for logged-in staff and admins. */
@@ -155,7 +168,7 @@ export function SiteHeader({
             </Link>
           ) : (
             <Suspense fallback={<div className="header-login-skeleton" />}>
-              <HeaderLoginMenu />
+              <HeaderLoginMenu emailSignIn={emailSignIn} />
             </Suspense>
           )}
           <Link className="shop-header-action" href={viewer ? "/account#favourites" : "/favourites"}>

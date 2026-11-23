@@ -54,6 +54,8 @@ export const settingsSchema = z.object({
   // Emails
   emailOrderStatus: z.boolean(),
   emailLoginAlert: z.boolean(),
+  /** "Continue with email" on the login page and header (no code check yet). */
+  emailSignIn: z.boolean(),
   emailTeamNewOrder: z.boolean(),
   /** "Forgot password?" on the dashboard sends a one-time code to the person's Gmail. */
   dashboardPasswordReset: z.boolean(),
@@ -93,6 +95,7 @@ export const settingsDefaults: Settings = {
   returnDays: 7,
   emailOrderStatus: true,
   emailLoginAlert: false,
+  emailSignIn: true,
   emailTeamNewOrder: true,
   dashboardPasswordReset: true,
   paymentMode: "razorpay",

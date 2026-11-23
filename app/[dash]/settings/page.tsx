@@ -194,6 +194,12 @@ export default async function SettingsPage() {
               checked={s.emailLoginAlert}
             />
             <Toggle
+              name="emailSignIn"
+              title="Sign in with email"
+              text="Anyone can sign in by typing their email — the same account as Google for that email. No code check yet."
+              checked={s.emailSignIn}
+            />
+            <Toggle
               name="dashboardPasswordReset"
               title="Forgot dashboard password by email"
               text="“Forgot password?” on the dashboard lock screen emails a 6-digit code to the person’s Gmail."

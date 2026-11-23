@@ -41,6 +41,7 @@ export default async function ShopLayout({ children }: { children: React.ReactNo
         announcement={announcement.items}
         dashboardHref={staff ? adminHref() : undefined}
         brand={{ name: settings.siteName, logo: settings.logoUrl }}
+        emailSignIn={settings.emailSignIn}
       />
       <main className="site-main">{children}</main>
       <SiteFooter />

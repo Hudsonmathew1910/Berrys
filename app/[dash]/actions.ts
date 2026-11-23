@@ -685,7 +685,13 @@ const settingSections = {
   social: ["instagram", "facebook", "youtube", "x", "pinterest"],
   seo: ["seoTitle", "seoDescription", "seoKeywords", "seoImage"],
   shipping: ["shippingFee", "freeShippingAbove", "returnDays"],
-  emails: ["emailOrderStatus", "emailLoginAlert", "emailTeamNewOrder", "dashboardPasswordReset"],
+  emails: [
+    "emailOrderStatus",
+    "emailLoginAlert",
+    "emailTeamNewOrder",
+    "dashboardPasswordReset",
+    "emailSignIn",
+  ],
   maintenance: ["maintenance", "maintenanceMessage"],
   logs: ["errorLogDays"],
 } as const satisfies Record<string, readonly (keyof Settings)[]>;
@@ -694,6 +700,7 @@ const booleanSettings = new Set<keyof Settings>([
   "emailLoginAlert",
   "emailTeamNewOrder",
   "dashboardPasswordReset",
+  "emailSignIn",
   "maintenance",
 ]);
 
