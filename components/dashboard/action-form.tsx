@@ -1,9 +1,12 @@
 "use client";
-import { useActionState, useEffect, useRef } from "react";
+import { startTransition, useActionState, useEffect, useRef } from "react";
 import { CheckCircle2, AlertCircle, TriangleAlert } from "lucide-react";
 import type { ActionResult } from "@/app/[dash]/actions";
 
 type Action = (prev: ActionResult, data: FormData) => Promise<ActionResult>;
+
+/** Fired on a form when its server action has answered (detail: the ActionResult). */
+export const FORM_DONE = "dash-form-done";
 
 /** A warning popup shown before saving when the checkbox `field` is switched off. */
 export type ConfirmOff = {
@@ -26,6 +29,7 @@ export function ActionForm({
   confirmOff,
   resetOnSuccess = false,
   inline = false,
+  saveAll = false,
 }: {
   action: Action;
   children: React.ReactNode;
@@ -34,6 +38,8 @@ export function ActionForm({
   confirmOff?: ConfirmOff;
   resetOnSuccess?: boolean;
   inline?: boolean;
+  /** Edited forms are saved together by the page's "Save all" bar. */
+  saveAll?: boolean;
 }) {
   const [state, formAction, pending] = useActionState(action, {});
   const ref = useRef<HTMLFormElement>(null);
@@ -41,6 +47,7 @@ export function ActionForm({
   const approved = useRef(false);
   useEffect(() => {
     if (state.ok && resetOnSuccess) ref.current?.reset();
+    if (state.at) ref.current?.dispatchEvent(new CustomEvent(FORM_DONE, { detail: state, bubbles: true }));
   }, [state, resetOnSuccess]);
 
   return (
@@ -49,6 +56,7 @@ export function ActionForm({
       action={formAction}
       className={(inline ? "dash-inline-form " : "dash-form ") + className}
       aria-busy={pending}
+      data-save-all={saveAll ? "" : undefined}
       onSubmit={(e) => {
         if (confirmOff && !approved.current) {
           const box = e.currentTarget.elements.namedItem(confirmOff.field);
@@ -59,7 +67,11 @@ export function ActionForm({
           }
         }
         approved.current = false;
-        if (confirm && !window.confirm(confirm)) e.preventDefault();
+        e.preventDefault();
+        if (confirm && !window.confirm(confirm)) return;
+        // Sent by hand (not React's automatic form submit) so a failed save keeps what was typed.
+        const data = new FormData(e.currentTarget, (e.nativeEvent as SubmitEvent).submitter);
+        startTransition(() => formAction(data));
       }}
     >
       <fieldset disabled={pending}>{children}</fieldset>

@@ -12,8 +12,12 @@ export type EditableProduct = {
   category: string;
   gender: "girls" | "boys" | "unisex";
   tags: string[];
+  /** MRP. */
   price: number;
-  originalPrice: number;
+  /** Own sale price (0 = none) and its window, India time yyyy-MM-ddTHH:mm. */
+  salePrice: number;
+  saleStartsAt: string;
+  saleEndsAt: string;
   description: string;
   images: string[];
   badge: string;
@@ -184,7 +188,7 @@ export function ProductEditor({
             </select>
           </label>
           <label>
-            Selling price (₹)
+            MRP (₹)
             <input
               type="number"
               min={1}
@@ -193,18 +197,47 @@ export function ProductEditor({
               value={p.price}
               onChange={(e) => set({ price: Number(e.target.value) })}
             />
+            <small className="muted">The normal price.</small>
           </label>
           <label>
-            MRP / was price (₹)
+            Sale price (₹, optional)
             <input
               type="number"
-              min={p.price}
+              min={0}
+              max={Math.max(0, p.price - 1)}
               step={1}
-              required
-              value={p.originalPrice}
-              onChange={(e) => set({ originalPrice: Number(e.target.value) })}
+              value={p.salePrice || ""}
+              placeholder="No sale"
+              onChange={(e) => set({ salePrice: Number(e.target.value) || 0 })}
             />
+            <small className="muted">
+              {p.salePrice > 0 && p.salePrice < p.price
+                ? `${Math.round((1 - p.salePrice / p.price) * 100)}% off the MRP · listed under Offers → Sale prices`
+                : "Leave empty to sell at the MRP."}
+            </small>
           </label>
+          {p.salePrice > 0 && (
+            <>
+              <label>
+                Sale starts (India time)
+                <input
+                  type="datetime-local"
+                  value={p.saleStartsAt}
+                  onChange={(e) => set({ saleStartsAt: e.target.value })}
+                />
+                <small className="muted">Empty = now</small>
+              </label>
+              <label>
+                Sale ends
+                <input
+                  type="datetime-local"
+                  value={p.saleEndsAt}
+                  onChange={(e) => set({ saleEndsAt: e.target.value })}
+                />
+                <small className="muted">Empty = no end</small>
+              </label>
+            </>
+          )}{" "}
           <label className="wide">
             Description
             <textarea

@@ -28,6 +28,7 @@
 .dash-unlock-card label,
 .dash-form label,
 .form-grid label {
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -41,7 +42,10 @@
 .product-editor select,
 .product-editor textarea,
 .dash-tools input,
-.dash-tools select {
+.dash-tools select,
+.rows-editor input:not([type="checkbox"]):not([type="file"]),
+.rows-editor select,
+.bulk-bar input {
   width: 100%;
   border: 1px solid #d9dcd2;
   background: #fffefa;
@@ -307,11 +311,12 @@
 }
 .form-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  /* minmax(0, …): long selects and date pickers can't push a column past the card edge. */
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
 }
 .form-grid.three {
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 .form-grid .wide {
   grid-column: 1 / -1;
@@ -1533,4 +1538,504 @@
   gap: 10px;
   margin-top: 16px;
   flex-wrap: wrap;
+}
+
+/* ---- Save all (sticky bar at the top of the page) ---- */
+.save-all-bar {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  margin: 0 0 14px;
+  padding: 10px 14px;
+  background: #fffefa;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  font-size: 13px;
+  animation: none;
+}
+.save-all-bar.dirty {
+  background: var(--navy);
+  border-color: var(--navy);
+  color: #fff;
+  box-shadow: 0 8px 24px rgba(20, 30, 50, 0.2);
+}
+.save-all-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+}
+.save-all-bar .form-msg {
+  margin: 0;
+}
+.save-all-bar.dirty .form-msg.error {
+  color: #ffd2c9;
+}
+.save-all-actions {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+.save-all-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 0 14px;
+  border-radius: 6px;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.save-all-save {
+  background: var(--navy);
+  color: #fff;
+  border: 1px solid var(--navy);
+}
+.save-all-bar.dirty .save-all-save {
+  background: #fff;
+  color: var(--navy);
+  border-color: #fff;
+}
+.save-all-save:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.save-all-clear {
+  background: transparent;
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.7);
+}
+.save-all-clear:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+/* ---- Add several (rows table) ---- */
+.add-several > summary {
+  cursor: pointer;
+  list-style-position: inside;
+}
+.add-several[open] > summary {
+  margin-bottom: 6px;
+}
+.rows-editor {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+.rows-table td {
+  vertical-align: middle;
+}
+.rows-table input:not([type="checkbox"]),
+.rows-table select {
+  width: 100%;
+  min-width: 90px;
+}
+.rows-table tr.row-error td {
+  background: #fdf1ee;
+}
+.rows-tools {
+  white-space: nowrap;
+}
+.rows-tools .row-msg {
+  display: block;
+  white-space: normal;
+  color: #9b2c1f;
+  max-width: 220px;
+}
+.icon-button {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--line);
+  background: #fff;
+  border-radius: 6px;
+  cursor: pointer;
+  color: inherit;
+}
+.icon-button:hover {
+  border-color: var(--navy);
+}
+.rows-image {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 52px;
+  border: 1px dashed var(--line);
+  cursor: pointer;
+  overflow: hidden;
+}
+.rows-image img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.rows-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+.rows-actions .form-msg {
+  margin: 0;
+}
+
+/* ---- Bulk select ---- */
+.bulk-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin: 12px 0;
+  padding: 10px 14px;
+  border: 1px dashed var(--line);
+  border-radius: 10px;
+  font-size: 13px;
+}
+.bulk-bar.active {
+  border-style: solid;
+  border-color: var(--navy);
+  background: #f4f6fb;
+}
+.bulk-bar input {
+  min-width: 0;
+  flex: 1 1 180px;
+  max-width: 280px;
+}
+.bulk-ops {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+.bulk-bar .form-msg {
+  margin: 0;
+  flex-basis: 100%;
+}
+.bulk-col {
+  width: 32px;
+}
+input.bulk-check {
+  width: 16px;
+  height: 16px;
+  margin: 0 4px 0 0;
+  vertical-align: middle;
+  cursor: pointer;
+}
+.dash-list li > .bulk-check {
+  flex: none;
+}
+@media (max-width: 640px) {
+  .save-all-actions {
+    margin-left: 0;
+    width: 100%;
+  }
+  .save-all-actions button {
+    flex: 1;
+  }
+  .bulk-bar input {
+    max-width: none;
+  }
+}
+
+/* ---- Rows table: several photos, multi-choice, stock per size ---- */
+.rows-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  min-width: 100px;
+}
+button.rows-image {
+  padding: 0;
+  background: none;
+}
+button.rows-image:hover {
+  outline: 2px solid #a5503f;
+}
+.rows-image.add {
+  border-style: dashed;
+}
+.rows-multi {
+  min-width: 150px;
+}
+.rows-multi > summary {
+  cursor: pointer;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  background: #fff;
+  list-style: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 220px;
+}
+.rows-multi[open] > .rows-multi-list {
+  display: grid;
+  margin-top: 4px;
+  gap: 4px;
+  min-width: 240px;
+  max-height: 220px;
+  overflow: auto;
+  padding: 8px 10px;
+  background: #fff;
+  border: 1px solid var(--line);
+}
+.rows-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  min-width: 160px;
+}
+.rows-counts label {
+  display: grid;
+  gap: 1px;
+  font-size: 10px;
+  text-align: center;
+}
+.rows-table .rows-counts input {
+  width: 52px;
+  min-width: 0;
+  padding: 4px;
+}
+.rows-hint {
+  font-size: 9px;
+  letter-spacing: 0;
+  text-transform: none;
+  font-weight: 400;
+}
+
+/* ---- Rows editor: card layout (many columns, no sideways scroll) ---- */
+.rows-cards {
+  display: grid;
+  gap: 12px;
+}
+.rows-card {
+  border: 1px solid var(--line);
+  background: #fff;
+  padding: 12px 14px;
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+.rows-card.row-error {
+  background: #fdf1ee;
+  border-color: #e7b3a9;
+}
+.rows-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+.rows-tool-buttons {
+  display: inline-flex;
+  gap: 6px;
+}
+.rows-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  gap: 10px 12px;
+  align-items: start;
+}
+.rows-field {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  font-size: 12px;
+}
+.rows-field-label {
+  font-weight: 600;
+  font-size: 11px;
+}
+.rows-field input:not([type="checkbox"]),
+.rows-field select {
+  width: 100%;
+  min-width: 0;
+}
+.rows-field-text:has(input[maxlength="5000"]),
+.rows-field-image,
+.rows-field-counts,
+.rows-field-multi {
+  grid-column: span 2;
+}
+.rows-field-check {
+  align-self: end;
+  padding-bottom: 6px;
+}
+.rows-card .rows-multi > summary {
+  max-width: none;
+}
+.rows-card .row-msg {
+  color: #9b2c1f;
+  max-width: none;
+}
+@media (max-width: 560px) {
+  .rows-card-grid {
+    grid-template-columns: 1fr;
+  }
+  .rows-field-text:has(input[maxlength="5000"]),
+  .rows-field-image,
+  .rows-field-counts,
+  .rows-field-multi {
+    grid-column: auto;
+  }
+}
+
+/* ---- Stock page ---- */
+.restock-scroll {
+  max-height: 420px;
+  overflow-y: auto;
+}
+.restock-scroll thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #fffefa;
+}
+.dash-table .table-product.small img {
+  width: 34px;
+  height: 42px;
+}
+.status-pill.low-pill {
+  background: #fbf0d9;
+  color: #8a5a12;
+}
+
+/* Compact inputs inside the add tables */
+.rows-table input:not([type="checkbox"]):not([type="file"]),
+.rows-table select {
+  padding: 7px 8px;
+}
+.rows-card input:not([type="checkbox"]):not([type="file"]),
+.rows-card select {
+  padding: 8px 9px;
+}
+
+.rows-field-label small {
+  display: inline;
+  font-weight: 400;
+}
+.rows-field-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* ---- Offers: form, conflicts with products' own sale prices, sale price list ---- */
+.offer-form {
+  display: grid;
+  gap: 12px;
+}
+.offer-form fieldset {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+.offer-form-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.offer-label {
+  font-size: 11px;
+}
+.offer-targets {
+  display: grid;
+  gap: 6px;
+}
+.offer-target-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 4px 12px;
+  max-height: 180px;
+  overflow: auto;
+  padding: 8px 10px;
+  border: 1px solid #d9dcd2;
+  background: #fff;
+}
+.offer-target-list label.check {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  font-size: 12px;
+}
+.offer-conflicts {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid #ecd9a8;
+  background: #fdf8ea;
+}
+.offer-conflicts.needs {
+  border-color: #e7b3a9;
+  background: #fdf1ee;
+}
+.offer-conflicts p {
+  margin: 0;
+}
+.offer-conflicts select {
+  width: 100%;
+  min-width: 220px;
+  padding: 6px 8px;
+  border: 1px solid #d9dcd2;
+  background: #fff;
+}
+.offer-card h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 0;
+}
+.new-offers {
+  display: grid;
+  gap: 12px;
+}
+.sale-list {
+  display: grid;
+  gap: 8px;
+}
+.sale-row {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  background: #fff;
+}
+.sale-product {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.sale-product img {
+  width: 34px;
+  height: 42px;
+  object-fit: cover;
+}
+.sale-product > span:not(.status-pill) {
+  flex: 1;
+  min-width: 0;
+}
+.sale-form fieldset {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px 12px;
+}
+.sale-form label:not(.check) {
+  display: grid;
+  gap: 4px;
+  font-size: 11px;
+  flex: 1 1 150px;
+}
+.sale-form label.check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-bottom: 10px;
 }

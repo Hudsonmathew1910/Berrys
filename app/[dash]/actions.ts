@@ -12,7 +12,7 @@ import {
   sendStatusUpdate,
   sendTeamRequest,
 } from "@/lib/email";
-import { decideRefundRequest, verifyRefundRequest } from "@/lib/refunds";
+import { decideRefundRequest, requestsForOrder, verifyRefundRequest } from "@/lib/refunds";
 import { razorpayConfigured } from "@/lib/orders";
 import { getSettings, updateSettings, type Settings } from "@/lib/settings";
 import { clearErrors, logError } from "@/lib/error-log";
@@ -67,8 +67,10 @@ import {
   type Staff,
 } from "@/lib/staff";
 import { isAllowedImageUrl, productSchema } from "@/lib/validation";
+import { fromIndiaInput } from "@/lib/catalog";
 
-export type ActionResult = { ok?: string; error?: string; at?: number };
+/** `rowErrors`: for "add several" tables, the rows (by index) that couldn't be saved. */
+export type ActionResult = { ok?: string; error?: string; at?: number; rowErrors?: Record<number, string> };
 
 /** After any dashboard change: refresh the dashboard and the shared shop caches. */
 const done = (ok: string): ActionResult => {
@@ -80,12 +82,14 @@ const done = (ok: string): ActionResult => {
 };
 
 /** Runs an action with permission checks; turns errors into a message for the form. */
-async function run(perm: Access | null, fn: (staff: Staff) => Promise<ActionResult>) {
+async function run(perm: Access | null, fn: (staff: Staff) => Promise<ActionResult>): Promise<ActionResult> {
   let who = "";
   try {
     const staff = await requireAction(perm ?? undefined);
     who = actorName(staff);
-    return await fn(staff);
+    const r = await fn(staff);
+    // Every answer carries a time, so the form (and "Save all") always sees it as new.
+    return { ...r, at: r.at ?? Date.now() };
   } catch (e) {
     if (e instanceof HttpError) return { error: e.message, at: Date.now() };
     if (e instanceof ZodError)
@@ -460,35 +464,36 @@ export async function deleteProductAction(_: ActionResult, f: FormData) {
 
 // ---------------------------------------------------------------- categories
 
+const categorySchema = z.object({
+  id: z.string().uuid().optional(),
+  name: z.string().min(2, "Category name is too short.").max(60),
+  description: z.string().max(200),
+  image: z.string().max(500),
+  sizes: z.array(z.string().max(20)).min(1, "Add at least one size.").max(15),
+  sortOrder: z.number().int().min(0).max(999),
+  active: z.boolean(),
+});
+const sizeList = (s: string) => [
+  ...new Set(
+    s
+      .split(",")
+      .map((x) => x.trim())
+      .filter(Boolean),
+  ),
+];
+
 export async function saveCategoryAction(_: ActionResult, f: FormData) {
   return run("categories", async (staff) => {
-    const sizes = [
-      ...new Set(
-        str(f, "sizes")
-          .split(",")
-          .map((s) => s.trim())
-          .filter(Boolean),
-      ),
-    ];
-    const data = z
-      .object({
-        id: z.string().uuid().optional(),
-        name: z.string().min(2, "Category name is too short.").max(60),
-        description: z.string().max(200),
-        image: z.string().max(500),
-        sizes: z.array(z.string().max(20)).min(1, "Add at least one size.").max(15),
-        sortOrder: z.number().int().min(0).max(999),
-        active: z.boolean(),
-      })
-      .parse({
-        id: str(f, "id") || undefined,
-        name: str(f, "name"),
-        description: str(f, "description"),
-        image: str(f, "image"),
-        sizes,
-        sortOrder: num(f, "sortOrder"),
-        active: f.get("active") === "on",
-      });
+    const sizes = sizeList(str(f, "sizes"));
+    const data = categorySchema.parse({
+      id: str(f, "id") || undefined,
+      name: str(f, "name"),
+      description: str(f, "description"),
+      image: str(f, "image"),
+      sizes,
+      sortOrder: num(f, "sortOrder"),
+      active: f.get("active") === "on",
+    });
     const c = await cat.saveCategory(data);
     await logActivity(actorName(staff), data.id ? "Edited category" : "Added category", c.name);
     return done("Category saved.");
@@ -515,39 +520,82 @@ export async function deleteCategoryAction(_: ActionResult, f: FormData) {
 
 // ---------------------------------------------------------------- offers
 
+/** Checks an offer from the form (or an "add several" row); throws a message for the person. */
+function offerInput(o: {
+  id?: string;
+  name: string;
+  type: string;
+  value: number;
+  scope: string;
+  targets: string[];
+  startsAt: string;
+  endsAt: string;
+  active: boolean;
+}) {
+  const scope = z
+    .enum(["all", "category", "product"], { message: "Choose what it applies to." })
+    .parse(o.scope);
+  const type = z.enum(["percent", "flat"], { message: "Choose % or ₹ off." }).parse(o.type);
+  const value = o.value;
+  if (!(value >= 1) || (type === "percent" && value > 90) || value > 100000)
+    throw new HttpError(
+      400,
+      type === "percent" ? "Use a discount between 1 and 90%." : "Enter a valid ₹ amount.",
+    );
+  const targets = o.targets.filter(Boolean);
+  if (scope !== "all" && !targets.length)
+    throw new HttpError(400, "Choose at least one category or product.");
+  // datetime-local inputs are India time (yyyy-MM-ddTHH:mm).
+  const startsAt = fromIndiaInput(o.startsAt) ?? new Date();
+  const endsAt = fromIndiaInput(o.endsAt);
+  if (Number.isNaN(startsAt.getTime()) || (endsAt && Number.isNaN(endsAt.getTime())))
+    throw new HttpError(400, "Check the dates.");
+  if (endsAt && endsAt <= startsAt) throw new HttpError(400, "The end must be after the start.");
+  const name = o.name.slice(0, 80);
+  if (name.length < 2) throw new HttpError(400, "Give the offer a name (shown to customers).");
+  return {
+    id: o.id || undefined,
+    name,
+    type,
+    value,
+    scope,
+    targets: scope === "all" ? [] : targets,
+    startsAt,
+    endsAt,
+    active: o.active,
+  };
+}
+
 export async function saveOfferAction(_: ActionResult, f: FormData) {
   return run("offers", async (staff) => {
-    const scope = z.enum(["all", "category", "product"]).parse(str(f, "scope"));
-    const type = z.enum(["percent", "flat"]).parse(str(f, "type"));
-    const value = num(f, "value");
-    if (value < 1 || (type === "percent" && value > 90) || value > 100000) {
-      return { error: type === "percent" ? "Use a discount between 1 and 90%." : "Enter a valid ₹ amount." };
-    }
-    const targets = f.getAll("targets").map(String).filter(Boolean);
-    if (scope !== "all" && !targets.length) return { error: "Choose at least one category or product." };
-    // datetime-local inputs are India time (yyyy-MM-ddTHH:mm).
-    const ist = (v: string) =>
-      new Date(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(v) ? `${v}:00+05:30` : "invalid");
-    const startsAt = str(f, "startsAt") ? ist(str(f, "startsAt")) : new Date();
-    const endsAt = str(f, "endsAt") ? ist(str(f, "endsAt")) : null;
-    if (Number.isNaN(startsAt.getTime()) || (endsAt && Number.isNaN(endsAt.getTime())))
-      return { error: "Check the dates." };
-    if (endsAt && endsAt <= startsAt) return { error: "The end must be after the start." };
-    const name = str(f, "name").slice(0, 80);
-    if (name.length < 2) return { error: "Give the offer a name (shown to customers)." };
-    await cat.saveOffer({
-      id: str(f, "id") || undefined,
-      name,
-      type,
-      value,
-      scope,
-      targets: scope === "all" ? [] : targets,
-      startsAt,
-      endsAt,
+    const data = offerInput({
+      id: str(f, "id"),
+      name: str(f, "name"),
+      type: str(f, "type"),
+      value: num(f, "value"),
+      scope: str(f, "scope"),
+      targets: f.getAll("targets").map(String),
+      startsAt: str(f, "startsAt"),
+      endsAt: str(f, "endsAt"),
       active: f.get("active") === "on",
     });
-    await logActivity(actorName(staff), str(f, "id") ? "Edited offer" : "Created offer", name);
-    return done("Offer saved.");
+    // Products with their own sale price: replace / skip / both, chosen in the form.
+    const decisions = z
+      .record(z.string().max(100), z.enum(["replace", "skip", "both"]))
+      .catch({})
+      .parse(JSON.parse(str(f, "decisions") || "{}"));
+    const { replaced } = await cat.saveOffer(data, decisions);
+    await logActivity(
+      actorName(staff),
+      data.id ? "Edited offer" : "Created offer",
+      data.name,
+      Object.keys(decisions).length ? JSON.stringify(decisions) : "",
+    );
+    return done(
+      replaced
+        ? `Offer saved. Removed the own sale price of ${plural(replaced, "product")} (they now get this offer).`
+        : "Offer saved.",
+    );
   });
 }
 
@@ -652,21 +700,6 @@ function assertCanManage(staff: Staff, ...roles: string[]) {
     throw new HttpError(403, "Only the store owner can add or change admins.");
 }
 
-export async function addStaffAction(_: ActionResult, f: FormData) {
-  return run("team", async (staff) => {
-    const email = z.string().trim().toLowerCase().email("Enter a valid Google email.").parse(str(f, "email"));
-    const access = accessFrom(f);
-    assertCanManage(staff, access.role);
-    await team.addStaff(
-      email,
-      { ...access, active: f.get("active") === "on", notifyOrders: f.get("notifyOrders") === "on" },
-      actorName(staff),
-    );
-    await logActivity(actorName(staff), `Added ${access.role}`, email, accessSummary(access));
-    return done(`${email} added. They log in with that Google account and create their dashboard password.`);
-  });
-}
-
 export async function updateStaffAction(_: ActionResult, f: FormData) {
   return run("team", async (staff) => {
     const id = str(f, "id");
@@ -709,30 +742,33 @@ export async function removeStaffAction(_: ActionResult, f: FormData) {
   });
 }
 
-/** Approve (and carry out) or reject a staff request. */
+/** Approve (and carry out) or reject one staff request. */
+async function decideOne(staff: Staff, id: string, decision: "approved" | "rejected", note: string) {
+  const req = await team.getRequest(id);
+  if (!req || req.status !== "pending") throw new HttpError(409, "This request was already handled.");
+  await team.decideRequest(req.id, decision, actorName(staff), note, (r) =>
+    r.type === "refund"
+      ? ord.refundOrder(r.targetId, actorName(staff), r.reason)
+      : r.type === "delete_order"
+        ? ord.deleteOrder(r.targetId, actorName(staff))
+        : r.type === "delete_category"
+          ? cat.deleteCategory(r.targetId)
+          : cat.deleteProduct(r.targetId),
+  );
+  if (decision === "approved" && req.type === "refund")
+    after(() => sendStatusUpdate(req.targetId, "refunded"));
+  await logActivity(
+    actorName(staff),
+    `${decision === "approved" ? "Approved" : "Rejected"} ${req.type} request`,
+    req.targetId,
+    note,
+  );
+}
+
 export async function decideRequestAction(_: ActionResult, f: FormData) {
   return run("requests", async (staff) => {
-    const req = await team.getRequest(str(f, "id"));
-    if (!req || req.status !== "pending") return { error: "This request was already handled." };
     const decision = str(f, "decision") === "approve" ? "approved" : "rejected";
-    const note = str(f, "note").slice(0, 500);
-    await team.decideRequest(req.id, decision, actorName(staff), note, (r) =>
-      r.type === "refund"
-        ? ord.refundOrder(r.targetId, actorName(staff), r.reason)
-        : r.type === "delete_order"
-          ? ord.deleteOrder(r.targetId, actorName(staff))
-          : r.type === "delete_category"
-            ? cat.deleteCategory(r.targetId)
-            : cat.deleteProduct(r.targetId),
-    );
-    if (decision === "approved" && req.type === "refund")
-      after(() => sendStatusUpdate(req.targetId, "refunded"));
-    await logActivity(
-      actorName(staff),
-      `${decision === "approved" ? "Approved" : "Rejected"} ${req.type} request`,
-      req.targetId,
-      note,
-    );
+    await decideOne(staff, str(f, "id"), decision, str(f, "note").slice(0, 500));
     return done(decision === "approved" ? "Approved and done." : "Request rejected.");
   });
 }
@@ -817,5 +853,548 @@ export async function clearErrorsAction(_: ActionResult, f: FormData) {
     await clearErrors(valid);
     await logActivity(actorName(staff), "Cleared error log", valid ?? "all");
     return done("Error log cleared.");
+  });
+}
+
+// ---------------------------------------------------------------- bulk: many at once
+
+const MAX_BULK = 200;
+const idsFrom = (f: FormData) => [...new Set(f.getAll("ids").map(String).filter(Boolean))].slice(0, MAX_BULK);
+
+/** A readable message for one item that failed inside a bulk run (unexpected errors are logged). */
+async function itemError(e: unknown, who: string) {
+  if (e instanceof HttpError) return e.message;
+  if (e instanceof ZodError) return e.issues[0]?.message ?? "Check this row.";
+  await logError("dashboard", e, { path: (await headers()).get("referer") ?? "", ref: who });
+  return "Something went wrong.";
+}
+
+/** Runs `fn` for every id; one failing doesn't stop the others. */
+async function forEachId(staff: Staff, ids: string[], fn: (id: string) => Promise<unknown>) {
+  let n = 0;
+  const failed: string[] = [];
+  for (const id of ids) {
+    try {
+      await fn(id);
+      n++;
+    } catch (e) {
+      failed.push(`${id}: ${await itemError(e, actorName(staff))}`);
+    }
+  }
+  return { n, failed };
+}
+
+/** "Done for 4. 1 not changed — X: reason." */
+function bulkDone(r: { n: number; failed: string[] }, did: (n: number) => string): ActionResult {
+  const more = r.failed.length > 3 ? ` (+${r.failed.length - 3} more)` : "";
+  const why = r.failed.length
+    ? `${r.failed.length} not changed — ${r.failed.slice(0, 3).join("; ")}${more}`
+    : "";
+  if (!r.n) return { error: why || "Nothing was selected.", at: Date.now() };
+  return done(why ? `${did(r.n)} ${why}` : did(r.n));
+}
+
+const plural = (n: number, word: string) =>
+  `${n} ${n === 1 ? word : word.endsWith("y") ? word.slice(0, -1) + "ies" : word + "s"}`;
+
+/** Orders and Payments: move many orders to the next step, or delete them (or ask to). */
+export async function bulkOrdersAction(_: ActionResult, f: FormData) {
+  return run("orders", async (staff) => {
+    const ids = idsFrom(f);
+    const op = str(f, "op");
+    const who = actorName(staff);
+    if (op === "delete") {
+      const direct = can(staff, "delete_records");
+      const reason = str(f, "reason").slice(0, 500);
+      if (!direct && !reason) return { error: "Please give a reason for the request.", at: Date.now() };
+      const r = await forEachId(staff, ids, async (id) => {
+        if (direct) {
+          const o = await ord.deleteOrder(id, who);
+          await logActivity(who, o.isDemo ? "Deleted demo order" : "Deleted order", id, reason);
+        } else {
+          await sendRequest(staff, "delete_order", id, reason);
+          await logActivity(who, "Requested order deletion", id, reason);
+        }
+      });
+      return bulkDone(r, (n) =>
+        direct ? `Deleted ${plural(n, "order")}.` : `Sent ${plural(n, "delete request")} to an admin.`,
+      );
+    }
+    const next = z.enum(["packed", "shipped", "delivered"]).parse(op);
+    const r = await forEachId(staff, ids, async (id) => {
+      await ord.setOrderStatus(id, next, who);
+      await logActivity(who, `Order marked ${next}`, id, "bulk");
+      after(() => sendStatusUpdate(id, next, ""));
+    });
+    return bulkDone(r, (n) => `Marked ${plural(n, "order")} as ${next}.`);
+  });
+}
+
+export async function bulkProductsAction(_: ActionResult, f: FormData) {
+  return run("products", async (staff) => {
+    const ids = idsFrom(f);
+    const op = z.enum(["show", "hide", "delete"]).parse(str(f, "op"));
+    const who = actorName(staff);
+    if (op === "delete") {
+      const direct = can(staff, "delete_products");
+      const reason = str(f, "reason").slice(0, 500);
+      if (!direct && !reason) return { error: "Please give a reason for the request.", at: Date.now() };
+      const r = await forEachId(staff, ids, async (id) => {
+        if (direct) await logActivity(who, "Deleted product", id, await cat.deleteProduct(id));
+        else {
+          if (!(await cat.getAdminProduct(id))) throw new HttpError(404, "Product not found.");
+          await sendRequest(staff, "delete_product", id, reason);
+          await logActivity(who, "Requested product deletion", id, reason);
+        }
+      });
+      return bulkDone(r, (n) =>
+        direct ? `Deleted ${plural(n, "product")}.` : `Sent ${plural(n, "delete request")} to an admin.`,
+      );
+    }
+    const active = op === "show";
+    const r = await forEachId(staff, ids, async (id) => {
+      await cat.setProductActive(id, active);
+      await logActivity(who, active ? "Showed product" : "Hid product", id, "bulk");
+    });
+    return bulkDone(r, (n) => `${plural(n, "product")} ${active ? "visible in the shop" : "hidden"}.`);
+  });
+}
+
+export async function bulkCategoriesAction(_: ActionResult, f: FormData) {
+  return run("categories", async (staff) => {
+    const ids = idsFrom(f);
+    const op = z.enum(["show", "hide", "delete"]).parse(str(f, "op"));
+    const who = actorName(staff);
+    if (op === "delete") {
+      const direct = can(staff, "delete_categories");
+      const reason = str(f, "reason").slice(0, 500);
+      if (!direct && !reason) return { error: "Please give a reason for the request.", at: Date.now() };
+      const r = await forEachId(staff, ids, async (id) => {
+        if (direct) await logActivity(who, "Deleted category", await cat.deleteCategory(id), reason);
+        else {
+          await cat.assertCategoryDeletable(id);
+          await sendRequest(staff, "delete_category", id, reason);
+          await logActivity(who, "Requested category deletion", id, reason);
+        }
+      });
+      return bulkDone(r, (n) =>
+        direct ? `Deleted ${plural(n, "category")}.` : `Sent ${plural(n, "delete request")} to an admin.`,
+      );
+    }
+    const active = op === "show";
+    const r = await forEachId(staff, ids, async (id) => {
+      const name = await cat.setCategoryActive(id, active);
+      await logActivity(who, active ? "Showed category" : "Hid category", name, "bulk");
+    });
+    return bulkDone(r, (n) => `${plural(n, "category")} ${active ? "shown in the shop" : "hidden"}.`);
+  });
+}
+
+export async function bulkOffersAction(_: ActionResult, f: FormData) {
+  return run("offers", async (staff) => {
+    const ids = idsFrom(f);
+    const op = z.enum(["on", "off", "delete"]).parse(str(f, "op"));
+    const who = actorName(staff);
+    const r = await forEachId(staff, ids, async (id) => {
+      if (op === "delete") {
+        await cat.deleteOffer(id);
+        await logActivity(who, "Deleted offer", id, "bulk");
+      } else {
+        const name = await cat.setOfferActive(id, op === "on");
+        await logActivity(who, op === "on" ? "Turned offer on" : "Turned offer off", name, "bulk");
+      }
+    });
+    return bulkDone(r, (n) =>
+      op === "delete" ? `Deleted ${plural(n, "offer")}.` : `${plural(n, "offer")} turned ${op}.`,
+    );
+  });
+}
+
+/** Stock: ids are "productId|size". Add (or remove) the same amount, or mark sold out. */
+export async function bulkStockAction(_: ActionResult, f: FormData) {
+  return run("stock", async (staff) => {
+    const op = z.enum(["add", "soldout"]).parse(str(f, "op"));
+    const amount = num(f, "amount");
+    if (op === "add" && (!amount || Math.abs(amount) > 100000))
+      return { error: "Enter how many to add (or remove with a minus).", at: Date.now() };
+    const who = actorName(staff);
+    const r = await forEachId(staff, idsFrom(f), async (key) => {
+      const at = key.indexOf("|");
+      const [productId, size] = [key.slice(0, at), key.slice(at + 1)];
+      if (at < 1 || !size) throw new HttpError(400, "Unknown row.");
+      const change = op === "add" ? amount : -(await cat.stockOf(productId, size));
+      if (!change) return;
+      await cat.adjustStock(productId, size, change, who, op === "add" ? "Bulk update" : "Marked sold out");
+      await logActivity(
+        who,
+        "Adjusted stock",
+        `${productId} / ${size}`,
+        `${change > 0 ? "+" : ""}${change} (bulk)`,
+      );
+    });
+    return bulkDone(r, (n) => `Updated stock for ${plural(n, "size")}.`);
+  });
+}
+
+export async function bulkCustomersAction(_: ActionResult, f: FormData) {
+  return run("delete_records", async (staff) => {
+    z.literal("delete").parse(str(f, "op"));
+    const r = await forEachId(staff, idsFrom(f), async (id) => {
+      const u = await deleteCustomer(id);
+      await logActivity(actorName(staff), "Deleted customer account", u.email ?? u.phone ?? u.id, "bulk");
+    });
+    return bulkDone(r, (n) => `Deleted ${plural(n, "customer account")}.`);
+  });
+}
+
+export async function bulkRequestsAction(_: ActionResult, f: FormData) {
+  return run("requests", async (staff) => {
+    const decision =
+      z.enum(["approve", "reject"]).parse(str(f, "op")) === "approve" ? "approved" : "rejected";
+    const note = str(f, "note").slice(0, 500);
+    const r = await forEachId(staff, idsFrom(f), (id) => decideOne(staff, id, decision, note));
+    return bulkDone(
+      r,
+      (n) => `${decision === "approved" ? "Approved" : "Rejected"} ${plural(n, "request")}.`,
+    );
+  });
+}
+
+const teamOpDone = {
+  enable: "enabled",
+  disable: "disabled",
+  notify_on: "will get new-order emails",
+  notify_off: "won’t get new-order emails",
+  remove: "removed",
+} as const;
+
+export async function bulkTeamAction(_: ActionResult, f: FormData) {
+  return run("team", async (staff) => {
+    const op = z.enum(["enable", "disable", "notify_on", "notify_off", "remove"]).parse(str(f, "op"));
+    const who = actorName(staff);
+    const r = await forEachId(staff, idsFrom(f), async (id) => {
+      const s = await team.getStaff(id);
+      const label = s.email ?? s.id;
+      if (isOwnerEmail(s.email)) throw new HttpError(400, "The store owner can’t be changed.");
+      assertCanManage(staff, s.role);
+      if (s.id === staff.id && (op === "disable" || op === "remove"))
+        throw new HttpError(400, "You can’t disable or remove yourself.");
+      if (op === "remove") {
+        await team.removeStaff(id);
+        await logActivity(who, "Removed team member", label, "bulk");
+      } else if (op === "notify_on" || op === "notify_off") {
+        await team.setNotifyOrders(id, op === "notify_on");
+        await logActivity(
+          who,
+          op === "notify_on" ? "Turned on new-order emails" : "Turned off new-order emails",
+          label,
+          "bulk",
+        );
+      } else {
+        const { role, accessMode, permissions, name, notifyOrders } = s;
+        await team.updateStaff(id, {
+          role,
+          accessMode,
+          permissions,
+          name,
+          notifyOrders,
+          active: op === "enable",
+        });
+        await logActivity(
+          who,
+          op === "enable" ? "Enabled team member" : "Disabled team member",
+          label,
+          "bulk",
+        );
+      }
+    });
+    return bulkDone(r, (n) => `${plural(n, "team member")} ${teamOpDone[op]}.`);
+  });
+}
+
+// ---------------------------------------------------------------- add several: one "Save all"
+
+const MAX_ROWS = 100;
+type RowIn = Record<string, unknown>;
+const rowsFrom = (f: FormData): RowIn[] => {
+  let v: unknown;
+  try {
+    v = JSON.parse(str(f, "rows") || "[]");
+  } catch {
+    throw new HttpError(400, "Nothing to save.");
+  }
+  if (!Array.isArray(v)) throw new HttpError(400, "Nothing to save.");
+  if (v.length > MAX_ROWS) throw new HttpError(400, `Up to ${MAX_ROWS} rows at a time.`);
+  return v.filter((r): r is RowIn => !!r && typeof r === "object");
+};
+const rs = (r: RowIn, k: string) => String(r[k] ?? "").trim();
+const rn = (r: RowIn, k: string) => Number.parseInt(rs(r, k) || "0", 10) || 0;
+/** A multi-choice / several-photos cell: one value per line. */
+const rl = (r: RowIn, k: string) =>
+  rs(r, k)
+    .split("\n")
+    .map((x) => x.trim())
+    .filter(Boolean);
+
+/** Saves each row; answers which rows (by index) failed so they stay on screen. */
+async function eachRow(
+  staff: Staff,
+  rows: RowIn[],
+  fn: (r: RowIn) => Promise<unknown>,
+  did: (n: number) => string,
+): Promise<ActionResult> {
+  if (!rows.length) return { error: "Fill in at least one row.", at: Date.now() };
+  const rowErrors: Record<number, string> = {};
+  let n = 0;
+  for (const [i, r] of rows.entries()) {
+    try {
+      await fn(r);
+      n++;
+    } catch (e) {
+      rowErrors[i] = await itemError(e, actorName(staff));
+    }
+  }
+  const bad = Object.keys(rowErrors).length;
+  if (!n)
+    return {
+      error: bad === 1 ? Object.values(rowErrors)[0] : `None saved — fix the ${bad} rows marked in red.`,
+      rowErrors,
+      at: Date.now(),
+    };
+  const res = done(bad ? `${did(n)} ${bad} still to fix (marked in red).` : did(n));
+  return bad ? { ...res, rowErrors } : res;
+}
+
+export async function addCategoriesAction(_: ActionResult, f: FormData) {
+  return run("categories", async (staff) =>
+    eachRow(
+      staff,
+      rowsFrom(f),
+      async (r) => {
+        const data = categorySchema.parse({
+          name: rs(r, "name"),
+          description: rs(r, "description").slice(0, 200),
+          image: "",
+          sizes: sizeList(rs(r, "sizes")),
+          sortOrder: rn(r, "sortOrder"),
+          active: r.active !== false,
+        });
+        const c = await cat.saveCategory(data);
+        await logActivity(actorName(staff), "Added category", c.name);
+      },
+      (n) => `Added ${plural(n, "category")}.`,
+    ),
+  );
+}
+
+export async function addProductsAction(_: ActionResult, f: FormData) {
+  return run("products", async (staff) => {
+    const cats = await getCategories(false);
+    return eachRow(
+      staff,
+      rowsFrom(f),
+      async (r) => {
+        const c = cats.find((x) => x.name === rs(r, "category"));
+        if (!c) throw new HttpError(400, "Choose a category.");
+        const price = rn(r, "price");
+        // "S=3" lines: stock for each size of the category (missing sizes start at 0).
+        const counts = Object.fromEntries(
+          rl(r, "stock").map((l) => {
+            const at = l.lastIndexOf("=");
+            return [l.slice(0, at), Number.parseInt(l.slice(at + 1), 10) || 0];
+          }),
+        );
+        const input = productSchema.parse({
+          name: rs(r, "name"),
+          category: c.name,
+          gender: rs(r, "gender") || "unisex",
+          price,
+          salePrice: rn(r, "salePrice"),
+          saleStartsAt: rs(r, "saleStartsAt"),
+          saleEndsAt: rs(r, "saleEndsAt"),
+          images: rl(r, "images"),
+          description: rs(r, "description").slice(0, 5000),
+          tags: rs(r, "tags")
+            .split(",")
+            .map((t) => t.trim())
+            .filter(Boolean),
+          badge: rs(r, "badge"),
+          color: "#e9dccf",
+          active: r.active !== false,
+          stock: Object.fromEntries(c.sizes.map((s) => [s, Math.max(0, counts[s] ?? 0)])),
+        });
+        const id = await cat.saveProduct(input, actorName(staff));
+        await logActivity(actorName(staff), "Added product", id, input.name);
+      },
+      (n) => `Added ${plural(n, "product")}.`,
+    );
+  });
+}
+
+export async function addStockRowsAction(_: ActionResult, f: FormData) {
+  return run("stock", async (staff) =>
+    eachRow(
+      staff,
+      rowsFrom(f),
+      async (r) => {
+        const productId = rs(r, "productId");
+        const size = rs(r, "size");
+        const change = rn(r, "change");
+        const note = rs(r, "note").slice(0, 200);
+        if (!productId) throw new HttpError(400, "Choose a product.");
+        if (!size) throw new HttpError(400, "Choose a size.");
+        if (!change || Math.abs(change) > 100000)
+          throw new HttpError(400, "Enter how many to add (or remove with a minus).");
+        await cat.adjustStock(productId, size, change, actorName(staff), note);
+        await logActivity(
+          actorName(staff),
+          "Adjusted stock",
+          `${productId} / ${size}`,
+          `${change > 0 ? "+" : ""}${change} ${note}`,
+        );
+      },
+      (n) => `Saved ${plural(n, "stock change")}.`,
+    ),
+  );
+}
+
+export async function addStaffRowsAction(_: ActionResult, f: FormData) {
+  return run("team", async (staff) =>
+    eachRow(
+      staff,
+      rowsFrom(f),
+      async (r) => {
+        const email = z
+          .string()
+          .trim()
+          .toLowerCase()
+          .email("Enter a valid Google email.")
+          .parse(rs(r, "email"));
+        const role = z.enum(["admin", "staff"]).catch("staff").parse(rs(r, "role"));
+        assertCanManage(staff, role);
+        // Empty or "default"/"full" = the role's standard access; "manual" = only the ticked items.
+        const manual = rs(r, "access") === "manual";
+        const allowed: readonly string[] =
+          role === "admin" ? [...permissionKeys, ...adminAreaKeys] : permissionKeys;
+        const access = {
+          role,
+          accessMode: (manual ? "manual" : role === "admin" ? "full" : "default") as AccessMode,
+          permissions: manual ? rl(r, "permissions").filter((k): k is AccessKey => allowed.includes(k)) : [],
+        };
+        if (manual && !access.permissions.length)
+          throw new HttpError(400, "Tick at least one thing they can use.");
+        await team.addStaff(
+          email,
+          { ...access, active: r.active !== false, notifyOrders: r.notifyOrders !== false },
+          actorName(staff),
+        );
+        await logActivity(actorName(staff), `Added ${role}`, email, accessSummary(access));
+      },
+      (n) =>
+        `Added ${plural(n, "team member")}. They log in with Google and create their dashboard password.`,
+    ),
+  );
+}
+
+// ---------------------------------------------------------------- customer refund requests, many at once
+
+type RefundOp = "approve" | "reject" | "verify_approve" | "verify_reject";
+
+/**
+ * One step on one customer refund request, with the same rules as the single buttons:
+ * approvers ("requests") approve or reject (the customer is emailed, rejecting needs a note);
+ * staff with Orders verify with a recommendation for the admin.
+ */
+async function refundStep(staff: Staff, requestId: string, op: RefundOp, note: string) {
+  const who = actorName(staff);
+  if (op === "approve" || op === "reject") {
+    if (!can(staff, "requests"))
+      throw new HttpError(403, "Only admins who handle requests can decide refunds.");
+    const decision = op === "approve" ? "approved" : "rejected";
+    const req = await decideRefundRequest(requestId, decision, who, note);
+    await logActivity(
+      who,
+      decision === "approved" ? "Approved refund request" : "Rejected refund request",
+      req.orderId,
+      note,
+    );
+    const order = await orderRow(req.orderId);
+    if (order) after(() => sendRefundDecision(order, req));
+    return;
+  }
+  const full = [op === "verify_reject" ? "Recommend: reject" : "Recommend: approve", note]
+    .filter(Boolean)
+    .join(" — ");
+  const req = await verifyRefundRequest(requestId, who, full);
+  await logActivity(who, "Verified refund request", req.orderId, full);
+  const order = await orderRow(req.orderId);
+  if (order) after(() => sendRefundVerified(order, req, staff.email));
+}
+
+const refundOpDone: Record<RefundOp, string> = {
+  approve: "Approved {n} — each customer has been emailed.",
+  reject: "Rejected {n} — each customer has been emailed.",
+  verify_approve: "Verified {n} (recommend approve) — an admin has been asked to decide.",
+  verify_reject: "Verified {n} (recommend reject) — an admin has been asked to decide.",
+};
+
+function refundOpFrom(f: FormData) {
+  const op = z
+    .enum(["approve", "reject", "verify_approve", "verify_reject"], { message: "Choose what to do." })
+    .parse(str(f, "op"));
+  const note = str(f, "note").slice(0, 500);
+  if (op === "reject" && note.length < 3)
+    throw new HttpError(400, "Write a short reason for the customers (sent to each of them).");
+  return { op, note };
+}
+
+/** Requests page: approve or reject many customer refund requests (ids are refund request ids). */
+export async function bulkRefundRequestsAction(_: ActionResult, f: FormData) {
+  return run("requests", async (staff) => {
+    const { op, note } = refundOpFrom(f);
+    const r = await forEachId(staff, idsFrom(f), (id) => refundStep(staff, id, op, note));
+    return bulkDone(r, (n) => refundOpDone[op].replace("{n}", plural(n, "refund request")));
+  });
+}
+
+/** Orders page (refund requests filter): ids are order ids; acts on each order's open refund request. */
+export async function bulkOrderRefundsAction(_: ActionResult, f: FormData) {
+  return run("orders", async (staff) => {
+    const { op, note } = refundOpFrom(f);
+    const r = await forEachId(staff, idsFrom(f), async (orderId) => {
+      const open = (await requestsForOrder(orderId)).find((x) =>
+        op.startsWith("verify")
+          ? x.status === "requested"
+          : x.status === "requested" || x.status === "verified",
+      );
+      if (!open)
+        throw new HttpError(
+          409,
+          op.startsWith("verify") ? "No refund request waiting to be verified." : "No open refund request.",
+        );
+      await refundStep(staff, open.id, op, note);
+    });
+    return bulkDone(r, (n) => refundOpDone[op].replace("{n}", plural(n, "refund request")));
+  });
+}
+
+// ---------------------------------------------------------------- products' own sale prices
+
+/** Change or switch off a product's sale price from the Offers page (the same row the product uses). */
+export async function saveSalePriceAction(_: ActionResult, f: FormData) {
+  return run("offers", async (staff) => {
+    const startsAt = fromIndiaInput(str(f, "startsAt")) ?? new Date();
+    const endsAt = fromIndiaInput(str(f, "endsAt"));
+    if (Number.isNaN(startsAt.getTime()) || (endsAt && Number.isNaN(endsAt.getTime())))
+      return { error: "Check the dates." };
+    if (endsAt && endsAt <= startsAt) return { error: "The sale must end after it starts." };
+    const name = await cat.saveSalePrice(str(f, "id"), {
+      value: num(f, "value"),
+      startsAt,
+      endsAt,
+      active: f.get("active") === "on",
+    });
+    await logActivity(actorName(staff), "Changed sale price", name, `₹${num(f, "value")}`);
+    return done("Sale price saved.");
   });
 }

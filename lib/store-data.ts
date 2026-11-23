@@ -15,6 +15,16 @@ export const soldStatuses: OrderStatus[] = ["paid", "packed", "shipped", "delive
 export type ProductRow = typeof products.$inferSelect;
 
 /**
+ * A product customers can see and buy: switched on, and its category is shown in the shop.
+ * (Hiding a category in the dashboard hides its products too.)
+ */
+export const inShop = () =>
+  and(
+    eq(products.active, true),
+    sql`exists (select 1 from ${schema.categories} c where c.name = ${products.category} and c.active)`,
+  )!;
+
+/**
  * Turns product rows into storefront products: per-size stock (in the
  * category's size order) and today's price after offers.
  */
@@ -40,8 +50,9 @@ export async function hydrateProducts(rows: ProductRow[]): Promise<Product[]> {
       gender: p.gender,
       tags: p.tags,
       price,
+      // basePrice / originalPrice: the MRP — struck through on the shop when an offer applies.
       basePrice: p.price,
-      originalPrice: Math.max(p.originalPrice, p.price),
+      originalPrice: p.price,
       offer,
       description: p.description,
       image: p.image,
@@ -66,11 +77,20 @@ export type ProductQuery = {
   perPage?: number;
 };
 
+/**
+ * The product's own live sale price, else its MRP — for sorting by price in the database.
+ * (Category / store offers are left out here; the price shown is always the full calculation.)
+ */
+const sellingPrice = () =>
+  sql`coalesce((select least(o.value, ${products.price}) from ${schema.offers} o
+    where o.product_id = ${products.id} and o.active and o.starts_at <= now()
+      and (o.ends_at is null or o.ends_at > now())), ${products.price})`;
+
 /** Filtered, sorted, paginated catalogue — all done in the database, so it scales. */
 export async function queryProducts(q: ProductQuery) {
   const perPage = Math.min(Math.max(q.perPage ?? 12, 1), 48);
   const page = Math.max(q.page ?? 1, 1);
-  const where: SQL[] = [eq(products.active, true)];
+  const where: SQL[] = [inShop()];
   if (q.category) where.push(eq(products.category, q.category));
   if (q.gender === "girls" || q.gender === "boys") {
     where.push(or(eq(products.gender, q.gender), eq(products.gender, "unisex"))!);
@@ -99,8 +119,8 @@ export async function queryProducts(q: ProductQuery) {
   const order = {
     featured: [asc(products.createdAt), asc(products.id)],
     new: [desc(products.createdAt), asc(products.id)],
-    "price-low": [asc(products.price), asc(products.id)],
-    "price-high": [desc(products.price), asc(products.id)],
+    "price-low": [asc(sellingPrice()), asc(products.id)],
+    "price-high": [desc(sellingPrice()), asc(products.id)],
     name: [asc(products.name), asc(products.id)],
   }[q.sort ?? "featured"];
 
@@ -132,7 +152,7 @@ export const getProduct = cache(async (id: string) => {
   const rows = await getDb()
     .select()
     .from(products)
-    .where(and(eq(products.id, id), eq(products.active, true)))
+    .where(and(eq(products.id, id), inShop()))
     .limit(1);
   return (await hydrateProducts(rows))[0] ?? null;
 });
@@ -141,7 +161,7 @@ export async function relatedProducts(p: Product, limit = 4) {
   const rows = await getDb()
     .select()
     .from(products)
-    .where(and(eq(products.active, true), eq(products.category, p.category), ne(products.id, p.id)))
+    .where(and(inShop(), eq(products.category, p.category), ne(products.id, p.id)))
     .orderBy(desc(products.createdAt))
     .limit(limit);
   return hydrateProducts(rows);
@@ -157,7 +177,7 @@ export async function categoryCounts() {
   const rows = await getDb()
     .select({ category: products.category, count: sql<number>`count(*)::int` })
     .from(products)
-    .where(eq(products.active, true))
+    .where(inShop())
     .groupBy(products.category);
   return Object.fromEntries(rows.map((r) => [r.category, r.count])) as Record<string, number>;
 }
@@ -222,8 +242,8 @@ export async function cheapestPerCategory() {
   const rows = (await getDb().execute(sql`
     select distinct on (${products.category}) ${products.id} as id
     from ${products}
-    where ${products.active} = true
-    order by ${products.category}, ${products.price} asc, ${products.id} asc
+    where ${inShop()}
+    order by ${products.category}, ${sellingPrice()} asc, ${products.id} asc
   `)) as unknown as { id: string }[];
   if (!rows.length) return {} as Record<string, Product>;
   const list = await hydrateProducts(

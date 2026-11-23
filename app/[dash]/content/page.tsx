@@ -80,7 +80,7 @@ export default async function ContentPage() {
 
         <section className="dash-panel wide">
           <h2>Announcement bar (top of every page)</h2>
-          <ActionForm action={saveContentAction}>
+          <ActionForm action={saveContentAction} saveAll>
             <input type="hidden" name="key" value="announcement" />
             <div className="form-grid three">
               {[0, 1, 2].map((i) => (
@@ -98,7 +98,7 @@ export default async function ContentPage() {
         {blocks.map(([key, title, values]) => (
           <section key={key} className="dash-panel wide">
             <h2>{title}</h2>
-            <ActionForm action={saveContentAction}>
+            <ActionForm action={saveContentAction} saveAll>
               <input type="hidden" name="key" value={key} />
               <div className="form-grid">
                 {Object.keys(contentDefaults[key]).map((field) => {
@@ -130,7 +130,7 @@ export default async function ContentPage() {
                   view <ArrowUpRight size={12} />
                 </Link>
               </h2>
-              <ActionForm action={saveContentAction}>
+              <ActionForm action={saveContentAction} saveAll>
                 <input type="hidden" name="key" value={`help:${slug}`} />
                 <div className="form-grid">
                   <label>

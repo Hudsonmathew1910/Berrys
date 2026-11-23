@@ -2,7 +2,9 @@ import Link from "next/link";
 import { listPayments } from "@/lib/admin/insights";
 import { money } from "@/lib/catalog";
 import { statusLabels } from "@/lib/order-status";
-import { adminHref, requirePage } from "@/lib/staff";
+import { adminHref, can, requirePage } from "@/lib/staff";
+import { BulkAll, BulkBar, BulkCheck } from "@/components/dashboard/bulk-bar";
+import { bulkOrdersAction } from "../actions";
 import { Stat } from "@/components/dashboard/charts";
 import { ListTools, pageNum } from "@/components/dashboard/list-tools";
 import { Pagination } from "@/components/shop/pagination";
@@ -12,7 +14,9 @@ export default async function PaymentsPage({
 }: {
   searchParams: Promise<{ q?: string; page?: string }>;
 }) {
-  await requirePage("payments");
+  const staff = await requirePage("payments");
+  // Changing an order's status needs the Orders permission.
+  const canOrders = can(staff, "orders");
   const sp = await searchParams;
   const q = sp.q?.trim().slice(0, 80) || undefined;
   const page = pageNum(sp.page);
@@ -29,10 +33,27 @@ export default async function PaymentsPage({
         <Stat label="Refunded" value={money(res.refunded)} />
       </div>
       <ListTools q={q} placeholder="Search order, payment id, email" />
+      {canOrders && (
+        <BulkBar
+          id="payments-bulk"
+          action={bulkOrdersAction}
+          noun="order"
+          ops={[
+            { op: "packed", label: "Mark packed" },
+            { op: "shipped", label: "Mark shipped" },
+            { op: "delivered", label: "Mark delivered" },
+          ]}
+        />
+      )}{" "}
       <div className="table-scroll">
         <table className="dash-table">
           <thead>
             <tr>
+              {canOrders && (
+                <th className="bulk-col">
+                  <BulkAll form="payments-bulk" />
+                </th>
+              )}
               <th>Paid</th>
               <th>Order</th>
               <th>Razorpay payment</th>
@@ -44,6 +65,11 @@ export default async function PaymentsPage({
           <tbody>
             {res.rows.map((o) => (
               <tr key={o.id}>
+                {canOrders && (
+                  <td className="bulk-col">
+                    <BulkCheck form="payments-bulk" value={o.id} label={`Select order ${o.id}`} />
+                  </td>
+                )}
                 <td>
                   {o.paidAt?.toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" }) ?? "—"}
                 </td>

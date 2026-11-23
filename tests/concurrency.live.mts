@@ -61,7 +61,6 @@ const base = {
   gender: "unisex",
   tags: [],
   price: 500,
-  originalPrice: 600,
   description: "",
   images: ["/images/product-1.webp"],
   badge: "",
@@ -69,8 +68,8 @@ const base = {
   active: false,
   stock: Object.fromEntries(sizes.map((s) => [s, 0])),
 };
-await q(sql`insert into products (id, name, category, price, original_price, image, images, color, active)
-  values (${PID}, ${base.name}, ${base.category}, 500, 600, '/images/product-1.webp', '{/images/product-1.webp}', '#112233', true)`);
+await q(sql`insert into products (id, name, category, price, image, images, color, active)
+  values (${PID}, ${base.name}, ${base.category}, 500, '/images/product-1.webp', '{/images/product-1.webp}', '#112233', true)`);
 for (const s of sizes) await q(sql`insert into inventory values (${PID}, ${s}, ${s === S ? 3 : 10})`);
 
 let failed = false;

@@ -57,8 +57,15 @@ export const productSchema = z
     category: z.string().trim().min(1, "Choose a category.").max(80),
     gender: z.enum(["girls", "boys", "unisex"]),
     tags: z.array(z.string().trim().toLowerCase().min(1).max(30)).max(20).default([]),
-    price: z.number().int().min(1, "Enter the selling price.").max(1_000_000),
-    originalPrice: z.number().int().min(1).max(1_000_000),
+    /** MRP — the normal price. */
+    price: z.number().int().min(1, "Enter the MRP.").max(1_000_000),
+    /**
+     * Optional sale price (below the MRP) with optional start/end (India time, yyyy-MM-ddTHH:mm).
+     * Saved as the product's own offer; 0 / missing = no sale price.
+     */
+    salePrice: z.number().int().min(0).max(1_000_000).optional().default(0),
+    saleStartsAt: z.string().max(20).optional().default(""),
+    saleEndsAt: z.string().max(20).optional().default(""),
     description: z.string().max(5000).default(""),
     images: z
       .array(z.string().refine(isAllowedImageUrl, "Invalid image."))
@@ -73,7 +80,7 @@ export const productSchema = z
     /** updatedAt when the editor was opened: rejects saving over someone else’s newer edit. */
     version: z.string().max(40).optional(),
   })
-  .refine((p) => p.originalPrice >= p.price, "MRP must be at least the selling price.");
+  .refine((p) => !p.salePrice || p.salePrice < p.price, "The sale price must be lower than the MRP.");
 export type ProductInput = z.infer<typeof productSchema>;
 
 export const indianStates = [

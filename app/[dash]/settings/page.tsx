@@ -84,7 +84,7 @@ export default async function SettingsPage() {
       <div className="settings-grid">
         <section className="dash-panel" id="store">
           <h2>Store details</h2>
-          <ActionForm action={saveSettingsAction}>
+          <ActionForm action={saveSettingsAction} saveAll>
             <input type="hidden" name="section" value="store" />
             <div className="form-grid">
               <label>
@@ -114,7 +114,7 @@ export default async function SettingsPage() {
                 />
               </label>
               <label className="wide">
-                Store address (shown on emails)
+                Store address (shown at the bottom of every email)
                 <textarea name="storeAddress" rows={2} maxLength={300} defaultValue={s.storeAddress} />
               </label>
             </div>
@@ -178,7 +178,7 @@ export default async function SettingsPage() {
 
         <section className="dash-panel" id="shipping">
           <h2>Shipping & returns</h2>
-          <ActionForm action={saveSettingsAction}>
+          <ActionForm action={saveSettingsAction} saveAll>
             <input type="hidden" name="section" value="shipping" />
             <div className="form-grid">
               <label>
@@ -214,7 +214,7 @@ export default async function SettingsPage() {
               {mail ? `Sending with ${emailProvider()}` : "Email isn’t set up (SMTP_USER / SMTP_PASS)"}
             </StatusDot>
           </p>
-          <ActionForm action={saveSettingsAction}>
+          <ActionForm action={saveSettingsAction} saveAll>
             <input type="hidden" name="section" value="emails" />
             <Toggle
               name="emailOrderStatus"
@@ -302,7 +302,7 @@ export default async function SettingsPage() {
               </tbody>
             </table>
           )}
-          <ActionForm action={saveSettingsAction}>
+          <ActionForm action={saveSettingsAction} saveAll>
             <input type="hidden" name="section" value="emailLimit" />
             <label>
               Daily limit of the email account
@@ -322,7 +322,7 @@ export default async function SettingsPage() {
 
         <section className={"dash-panel" + (s.maintenance ? " highlight" : "")} id="maintenance">
           <h2>Maintenance mode</h2>
-          <ActionForm action={saveSettingsAction}>
+          <ActionForm action={saveSettingsAction} saveAll>
             <input type="hidden" name="section" value="maintenance" />
             <Toggle
               name="maintenance"
@@ -345,7 +345,7 @@ export default async function SettingsPage() {
 
         <section className="dash-panel" id="social">
           <h2>Social media</h2>
-          <ActionForm action={saveSettingsAction}>
+          <ActionForm action={saveSettingsAction} saveAll>
             <input type="hidden" name="section" value="social" />
             <div className="form-grid">
               {socialFields.map(([k, label]) => (
@@ -384,7 +384,7 @@ export default async function SettingsPage() {
 
         <section className="dash-panel" id="logs">
           <h2>Log settings</h2>
-          <ActionForm action={saveSettingsAction}>
+          <ActionForm action={saveSettingsAction} saveAll>
             <input type="hidden" name="section" value="logs" />
             <label>
               Keep errors for (days)
@@ -400,7 +400,7 @@ export default async function SettingsPage() {
 
         <section className="dash-panel wide" id="seo">
           <h2>SEO (Google & link previews)</h2>
-          <ActionForm action={saveSettingsAction}>
+          <ActionForm action={saveSettingsAction} saveAll>
             <input type="hidden" name="section" value="seo" />
             <label>
               Page title <small className="muted">(up to 70 characters)</small>

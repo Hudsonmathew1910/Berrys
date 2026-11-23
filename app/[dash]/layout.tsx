@@ -9,6 +9,7 @@ import { refundRequestCounts } from "@/lib/refunds";
 import { adminHref, adminPath, can, getDashboardContext, roleLabels, sectionAccess } from "@/lib/staff";
 import { DashFrame } from "@/components/dashboard/dash-frame";
 import { DashNav, type NavItem } from "@/components/dashboard/dash-nav";
+import { SaveAllBar } from "@/components/dashboard/save-all-bar";
 import { UnlockScreen } from "@/components/dashboard/unlock-screen";
 import { ToastProvider } from "@/components/store/toast";
 import { emailConfigured } from "@/lib/email";
@@ -135,6 +136,7 @@ export default async function DashboardLayout({
               {staff.email} · {roleLabels[staff.role]}
             </span>
           </header>
+          <SaveAllBar />
           {children}
         </div>
       </DashFrame>

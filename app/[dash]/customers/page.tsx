@@ -1,7 +1,9 @@
 import Link from "next/link";
 import { listCustomers } from "@/lib/admin/insights";
 import { money } from "@/lib/catalog";
-import { adminHref, requirePage } from "@/lib/staff";
+import { adminHref, can, requirePage } from "@/lib/staff";
+import { BulkAll, BulkBar, BulkCheck } from "@/components/dashboard/bulk-bar";
+import { bulkCustomersAction } from "../actions";
 import { ListTools, pageNum } from "@/components/dashboard/list-tools";
 import { Pagination } from "@/components/shop/pagination";
 
@@ -10,7 +12,8 @@ export default async function CustomersPage({
 }: {
   searchParams: Promise<{ q?: string; page?: string }>;
 }) {
-  await requirePage("customers");
+  const staff = await requirePage("customers");
+  const canDelete = can(staff, "delete_records");
   const sp = await searchParams;
   const q = sp.q?.trim().slice(0, 80) || undefined;
   const page = pageNum(sp.page);
@@ -23,10 +26,30 @@ export default async function CustomersPage({
         <span className="muted">{res.total} accounts</span>
       </div>
       <ListTools q={q} placeholder="Search name, email, mobile" />
+      {canDelete && (
+        <BulkBar
+          id="customers-bulk"
+          action={bulkCustomersAction}
+          noun="customer"
+          ops={[
+            {
+              op: "delete",
+              label: "Delete accounts",
+              danger: true,
+              confirm: "Delete {n} customer accounts? Their orders are kept for your records.",
+            },
+          ]}
+        />
+      )}{" "}
       <div className="table-scroll">
         <table className="dash-table">
           <thead>
             <tr>
+              {canDelete && (
+                <th className="bulk-col">
+                  <BulkAll form="customers-bulk" />
+                </th>
+              )}
               <th>Customer</th>
               <th>Mobile</th>
               <th>Joined</th>
@@ -37,6 +60,15 @@ export default async function CustomersPage({
           <tbody>
             {res.rows.map(({ user, spent, orders }) => (
               <tr key={user.id}>
+                {canDelete && (
+                  <td className="bulk-col">
+                    <BulkCheck
+                      form="customers-bulk"
+                      value={user.id}
+                      label={`Select ${user.email ?? user.name}`}
+                    />
+                  </td>
+                )}
                 <td>
                   <Link href={adminHref(`customers/${user.id}`)}>
                     <b>{user.name || "—"}</b>

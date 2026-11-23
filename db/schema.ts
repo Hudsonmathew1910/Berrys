@@ -92,10 +92,11 @@ export const products = pgTable(
       .array()
       .notNull()
       .default(sql`'{}'::text[]`),
-    /** Selling price in whole rupees. */
+    /**
+     * MRP (normal price) in whole rupees. Every discount — including the product's own
+     * sale price — lives in offers, so there is one place that decides what customers pay.
+     */
     price: integer("price").notNull(),
-    /** "Was" price in whole rupees, shown struck through. */
-    originalPrice: integer("original_price").notNull(),
     description: text("description").notNull().default(""),
     image: text("image").notNull(),
     badge: text("badge").notNull().default(""),
@@ -342,8 +343,8 @@ export const orderEvents = pgTable(
 export const offers = pgTable("offers", {
   id: uuid("id").primaryKey().defaultRandom(),
   name: text("name").notNull(),
-  /** percent | flat (₹ off) */
-  type: text("type").$type<"percent" | "flat">().notNull(),
+  /** percent | flat (₹ off) | price (a product's own sale price: pay exactly alue) */
+  type: text("type").$type<OfferType>().notNull(),
   value: integer("value").notNull(),
   /** all | category | product */
   scope: text("scope").$type<"all" | "category" | "product">().notNull(),
@@ -355,8 +356,27 @@ export const offers = pgTable("offers", {
   startsAt: timestamp("starts_at", { withTimezone: true }).notNull(),
   endsAt: timestamp("ends_at", { withTimezone: true }),
   active: boolean("active").notNull().default(true),
+  /**
+   * Set only on a product's own sale price (type "price", one per product). Deleting the product
+   * deletes its sale price; editing either the product or this offer edits the same row.
+   */
+  productId: text("product_id")
+    .unique()
+    .references(() => products.id, { onDelete: "cascade" }),
+  /** Category / store offers: products with their own sale price that this offer leaves alone ("Skip"). */
+  excluded: text("excluded")
+    .array()
+    .notNull()
+    .default(sql`'{}'::text[]`),
+  /** Category / store offers: products where this offer comes off their sale price ("Apply both"). */
+  stacked: text("stacked")
+    .array()
+    .notNull()
+    .default(sql`'{}'::text[]`),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }).enableRLS();
+
+export type OfferType = "percent" | "flat" | "price";
 
 export type ApprovalType = "refund" | "delete_product" | "delete_order" | "delete_category";
 

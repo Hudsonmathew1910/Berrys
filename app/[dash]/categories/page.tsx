@@ -2,7 +2,14 @@ import { listCategoriesWithCounts } from "@/lib/admin/catalog";
 import { DEFAULT_SIZES } from "@/lib/catalog";
 import { can, requirePage } from "@/lib/staff";
 import { ActionForm } from "@/components/dashboard/action-form";
-import { deleteCategoryAction, saveCategoryAction } from "../actions";
+import { BulkBar, BulkCheck } from "@/components/dashboard/bulk-bar";
+import { RowsEditor } from "@/components/dashboard/rows-editor";
+import {
+  addCategoriesAction,
+  bulkCategoriesAction,
+  deleteCategoryAction,
+  saveCategoryAction,
+} from "../actions";
 
 type Cat = Awaited<ReturnType<typeof listCategoriesWithCounts>>[number];
 
@@ -49,18 +56,64 @@ export default async function CategoriesPage() {
         <div>
           <h1>Categories</h1>
           <span className="muted">
-            Each category sets its own sizes. Renaming a category updates its products automatically.
+            Each category sets its own sizes. Renaming a category updates its products automatically. Edit
+            several, then press “Save all” at the bottom.
           </span>
         </div>
       </div>
+
+      <section className="dash-panel highlight">
+        <h2>Add categories</h2>
+        <p className="muted">Add as many rows as you need, then save them all at once.</p>
+        <RowsEditor
+          action={addCategoriesAction}
+          addLabel="Add another category"
+          saveLabel="Save all categories"
+          defaults={{
+            name: "",
+            sizes: DEFAULT_SIZES.join(", "),
+            description: "",
+            sortOrder: "0",
+            active: true,
+          }}
+          columns={[
+            { key: "name", label: "Name", type: "text", required: true, maxLength: 60 },
+            { key: "sizes", label: "Sizes (comma separated)", type: "text", required: true, width: "26%" },
+            { key: "description", label: "Short description", type: "text", maxLength: 200 },
+            { key: "sortOrder", label: "Order", type: "number", min: 0, max: 999, width: "80px" },
+            { key: "active", label: "Show", type: "check", width: "60px" },
+          ]}
+        />
+      </section>
+
+      <BulkBar
+        id="categories-bulk"
+        action={bulkCategoriesAction}
+        noun="category"
+        ops={[
+          { op: "show", label: "Show in shop" },
+          { op: "hide", label: "Hide" },
+          {
+            op: "delete",
+            label: canDelete ? "Delete" : "Request deletion",
+            danger: true,
+            confirm: canDelete
+              ? "Delete {n} categories? Only empty ones can be deleted."
+              : "Ask an admin to delete {n} categories?",
+          },
+        ]}
+        fields={canDelete ? [] : [{ name: "reason", label: "Reason (for delete requests)" }]}
+      />
+
       <div className="dash-grid">
         {cats.map((c) => (
           <section key={c.id} className="dash-panel">
             <h2>
-              {c.name} <small className="muted">· {c.products} products</small>{" "}
+              <BulkCheck form="categories-bulk" value={c.id} label={`Select ${c.name}`} /> {c.name}{" "}
+              <small className="muted">· {c.products} products</small>{" "}
               {!c.active && <span className="status-pill out">Hidden</span>}
             </h2>
-            <ActionForm action={saveCategoryAction}>
+            <ActionForm action={saveCategoryAction} saveAll>
               <CategoryFields c={c} />
               <button className="outline">Save</button>
             </ActionForm>
@@ -88,13 +141,6 @@ export default async function CategoriesPage() {
               ))}
           </section>
         ))}
-        <section className="dash-panel highlight">
-          <h2>Add a category</h2>
-          <ActionForm action={saveCategoryAction} resetOnSuccess>
-            <CategoryFields />
-            <button className="primary">Add category</button>
-          </ActionForm>
-        </section>
       </div>
     </div>
   );

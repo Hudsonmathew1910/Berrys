@@ -17,7 +17,7 @@ export function CartView({
   const bag = useBag();
   const toast = useToast();
   const { products, loading } = useProducts(bag.map((l) => l.productId));
-  const { count, subtotal } = bagTotals(bag, products);
+  const { count, subtotal, saved } = bagTotals(bag, products);
   const shipping = shippingFor(subtotal, shippingRule);
   const problems = bag.some((l) => {
     const p = products.find((x) => x.id === l.productId);
@@ -79,7 +79,14 @@ export function CartView({
                   </Link>
                   <p>
                     Size {line.size} · {money(p.price)}
+                    {p.price < p.basePrice && (
+                      <>
+                        {" "}
+                        <del className="muted was-price">{money(p.basePrice)}</del>
+                      </>
+                    )}
                   </p>
+                  {p.offer && <small className="offer-note">{p.offer}</small>}
                   {stock < line.quantity && (
                     <small className="form-error">
                       {stock
@@ -114,6 +121,12 @@ export function CartView({
           <span>Items ({count})</span>
           <b>{money(subtotal)}</b>
         </div>
+        {saved > 0 && (
+          <div className="subtotal offer-saving">
+            <span>Offer savings</span>
+            <b>−{money(saved)}</b>
+          </div>
+        )}{" "}
         <div className="subtotal">
           <span>Shipping</span>
           <b>{shipping ? money(shipping) : "Free"}</b>

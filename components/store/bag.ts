@@ -32,6 +32,11 @@ export function addToBag(bag: BagLine[], product: Product, size: string, quantit
 
 export function bagTotals(bag: BagLine[], products: Product[]) {
   return {
+    /** Taken off by offers (already included in subtotal). */
+    saved: bag.reduce((a, x) => {
+      const p = products.find((y) => y.id === x.productId);
+      return a + (p ? Math.max(0, p.basePrice - p.price) * x.quantity : 0);
+    }, 0),
     count: bag.reduce((a, x) => a + x.quantity, 0),
     subtotal: bag.reduce(
       (a, x) => a + (products.find((p) => p.id === x.productId)?.price || 0) * x.quantity,

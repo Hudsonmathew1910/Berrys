@@ -2119,3 +2119,55 @@ html {
     min-width: 250px;
   }
 }
+
+/* Offer savings in the bag and checkout summary */
+.offer-saving b {
+  color: #a5503f;
+}
+.cart-line-info .offer-note {
+  margin: 2px 0 6px;
+}
+
+/* Live facts (from Settings) on help pages */
+.help-facts {
+  margin: 18px 0 26px;
+  padding: 16px 18px;
+  border: 1px solid #e5e4dd;
+  background: #fbfaf6;
+}
+.help-facts h2 {
+  margin: 0 0 10px;
+  font-size: 16px;
+}
+.help-facts dl {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+}
+.help-facts dl > div {
+  display: grid;
+  grid-template-columns: 110px 1fr;
+  gap: 10px;
+}
+.help-facts dt {
+  font-weight: 600;
+}
+.help-facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.pre-line {
+  white-space: pre-line;
+}
+@media (max-width: 480px) {
+  .help-facts dl > div {
+    grid-template-columns: 1fr;
+    gap: 2px;
+  }
+}
+
+.cart-line-info del.was-price {
+  display: inline;
+  font-size: inherit;
+  margin-left: 4px;
+}

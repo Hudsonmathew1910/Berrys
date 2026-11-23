@@ -62,3 +62,27 @@ export function shippingFor(subtotal: number, rule: { fee: number; freeAbove: nu
   if (rule.freeAbove && subtotal >= rule.freeAbove) return 0;
   return rule.fee;
 }
+
+/** "yyyy-MM-ddTHH:mm" in India time (datetime-local inputs) → Date. Empty → null; bad input → Invalid Date. */
+export function fromIndiaInput(v: string): Date | null {
+  if (!v) return null;
+  return new Date(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(v) ? `${v}:00+05:30` : "invalid");
+}
+
+/** Date → "yyyy-MM-ddTHH:mm" in India time, for datetime-local inputs. */
+export const toIndiaInput = (d: Date | null | undefined) =>
+  d ? new Date(d.getTime() + 330 * 60_000).toISOString().slice(0, 16) : "";
+
+/**
+ * One offer applied to a starting price, never below ₹1. Shared by the shop, checkout and the
+ * dashboard previews so they always agree. percent = % off, flat = ₹ off, price = pay exactly `value`.
+ */
+export function applyOffer(o: { type: "percent" | "flat" | "price"; value: number }, from: number) {
+  const next =
+    o.type === "price"
+      ? Math.min(from, o.value)
+      : o.type === "percent"
+        ? from - Math.round((from * Math.min(o.value, 90)) / 100)
+        : from - o.value;
+  return Math.max(1, next);
+}

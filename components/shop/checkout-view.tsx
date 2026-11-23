@@ -59,7 +59,7 @@ export function CheckoutView({
     addresses.find((a) => a.isDefault)?.id ?? addresses[0]?.id ?? "new",
   );
   const [busy, setBusy] = useState(false);
-  const { count, subtotal } = bagTotals(bag, products);
+  const { count, subtotal, saved } = bagTotals(bag, products);
   const shipping = shippingFor(subtotal, shippingRule);
   const problems = bag.some((l) => {
     const p = products.find((x) => x.id === l.productId);
@@ -230,6 +230,7 @@ export function CheckoutView({
                     {p.name}
                     <small>
                       Size {l.size} × {l.quantity}
+                      {p.offer && <> · {p.offer}</>}
                     </small>
                   </span>
                   <b>{money(p.price * l.quantity)}</b>
@@ -242,6 +243,12 @@ export function CheckoutView({
           <span>Items ({count})</span>
           <b>{money(subtotal)}</b>
         </div>
+        {saved > 0 && (
+          <div className="subtotal offer-saving">
+            <span>Offer savings</span>
+            <b>−{money(saved)}</b>
+          </div>
+        )}{" "}
         <div className="subtotal">
           <span>Shipping</span>
           <b>{shipping ? money(shipping) : "Free"}</b>

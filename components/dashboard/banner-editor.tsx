@@ -1,5 +1,6 @@
 "use client";
-import { useActionState, useState } from "react";
+import { startTransition, useActionState, useEffect, useRef, useState } from "react";
+import { FORM_DONE } from "./action-form";
 import { AlertCircle, CheckCircle2, Loader2, Upload, X } from "lucide-react";
 import type { Banner } from "@/lib/content";
 import { api } from "@/components/store/api";
@@ -21,6 +22,11 @@ export function BannerEditor({
   const [uploading, setUploading] = useState(-1);
   const [uploadError, setUploadError] = useState("");
   const [state, action, pending] = useActionState(saveContentAction, {});
+  const ref = useRef<HTMLFormElement>(null);
+  // Lets the page's "Save all" bar know this form has answered.
+  useEffect(() => {
+    if (state.at) ref.current?.dispatchEvent(new CustomEvent(FORM_DONE, { detail: state, bubbles: true }));
+  }, [state]);
   const set = (i: number, patch: Partial<Banner>) =>
     setBanners((all) => all.map((b, j) => (j === i ? { ...b, ...patch } : b)));
 
@@ -40,7 +46,19 @@ export function BannerEditor({
   }
 
   return (
-    <form action={action} className="banner-editor">
+    <form
+      ref={ref}
+      action={action}
+      className="banner-editor"
+      data-save-all=""
+      onReset={() => setBanners(initial)}
+      onSubmit={(e) => {
+        // Sent by hand: React's automatic submit resets the form, which would undo the edits on an error.
+        e.preventDefault();
+        const data = new FormData(e.currentTarget);
+        startTransition(() => action(data));
+      }}
+    >
       <input type="hidden" name="key" value="banners" />
       <div className="banner-cards">
         {banners.map((b, i) => {

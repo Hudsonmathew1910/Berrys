@@ -167,7 +167,7 @@ function layout(s: Settings, body: string) {
       </div>
       <div style="padding:24px;color:#253b45;font-size:15px;line-height:1.55">${body}</div>
       <div style="padding:16px 24px;border-top:1px solid #eeede7;color:#7d827e;font-size:12px">
-        ${escape(s.siteName)} · <a href="${site}" style="color:#7d827e">${site.replace(/^https?:\/\//, "")}</a>${contact ? `<br>${contact}` : ""}
+        ${escape(s.siteName)} · <a href="${site}" style="color:#7d827e">${site.replace(/^https?:\/\//, "")}</a>${contact ? `<br>${contact}` : ""}${s.storeAddress ? `<br>${escape(s.storeAddress).replace(/\r?\n/g, "<br>")}` : ""}
       </div>
     </div>
   </div>`;

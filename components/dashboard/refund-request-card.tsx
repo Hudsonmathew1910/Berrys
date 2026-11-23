@@ -2,6 +2,7 @@ import Link from "next/link";
 import { money } from "@/lib/catalog";
 import { refundStatusLabels, type RefundRequest } from "@/lib/refunds";
 import { ActionForm } from "@/components/dashboard/action-form";
+import { BulkCheck } from "@/components/dashboard/bulk-bar";
 import { decideRefundRequestAction, verifyRefundRequestAction } from "@/app/[dash]/actions";
 
 const fmt = (d: Date | null) =>
@@ -17,6 +18,7 @@ export function RefundRequestCard({
   canVerify,
   orderHref,
   customer,
+  bulkForm,
 }: {
   r: RefundRequest;
   isAdmin: boolean;
@@ -24,11 +26,16 @@ export function RefundRequestCard({
   /** Shown on the Requests page (links to the order). */
   orderHref?: string;
   customer?: string;
+  /** Adds a tick box (while open) for the page's bulk bar with this id. */
+  bulkForm?: string;
 }) {
   const open = r.status === "requested" || r.status === "verified";
   return (
     <div className={`refund-card refund-${r.status}`}>
       <div className="refund-card-head">
+        {open && bulkForm && (
+          <BulkCheck form={bulkForm} value={r.id} label={`Select refund request for ${r.orderId}`} />
+        )}
         <span className={`status-pill refund-pill refund-${r.status}`}>{refundStatusLabels[r.status]}</span>
         {orderHref && (
           <Link href={orderHref}>

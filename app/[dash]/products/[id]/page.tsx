@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft, ArrowUpRight } from "lucide-react";
 import { getAdminProduct, listMovements } from "@/lib/admin/catalog";
+import { toIndiaInput } from "@/lib/catalog";
 import { getCategories } from "@/lib/categories";
 import { adminHref, can, requirePage } from "@/lib/staff";
 import { ActionForm } from "@/components/dashboard/action-form";
@@ -47,7 +48,9 @@ export default async function EditProductPage({ params }: { params: Promise<{ id
           gender: p.gender,
           tags: p.tags,
           price: p.basePrice,
-          originalPrice: p.originalPrice,
+          salePrice: p.sale?.price ?? 0,
+          saleStartsAt: toIndiaInput(p.sale?.startsAt),
+          saleEndsAt: toIndiaInput(p.sale?.endsAt),
           description: p.description,
           images: p.images.filter(Boolean),
           badge: p.badge,

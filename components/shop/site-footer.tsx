@@ -92,8 +92,8 @@ export async function SiteFooter() {
           © {new Date().getFullYear()} {s.siteName}. All rights reserved.
         </span>
         <span>
-          <Link href="/help/privacy">Privacy</Link> · <Link href="/help/terms">Terms</Link> · Secure payments
-          by Razorpay
+          <Link href="/help/privacy">Privacy</Link> · <Link href="/help/terms">Terms</Link>
+          {s.paymentMode === "razorpay" && " · Secure payments by Razorpay"}
         </span>
         <span>MADE WITH A LITTLE LOVE ♡</span>
       </div>

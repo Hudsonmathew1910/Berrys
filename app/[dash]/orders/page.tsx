@@ -7,7 +7,8 @@ import { adminHref, can, requirePage } from "@/lib/staff";
 import { ListTools, pageNum } from "@/components/dashboard/list-tools";
 import { ActionForm } from "@/components/dashboard/action-form";
 import { Pagination } from "@/components/shop/pagination";
-import { deleteUnpaidOrdersAction } from "../actions";
+import { BulkAll, BulkBar, BulkCheck } from "@/components/dashboard/bulk-bar";
+import { bulkOrderRefundsAction, bulkOrdersAction, deleteUnpaidOrdersAction } from "../actions";
 
 type SP = { q?: string; status?: string; page?: string };
 
@@ -21,6 +22,10 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
       : undefined;
   const page = pageNum(sp.page);
   const res = await listOrders({ q, status, page });
+  const canDelete = can(staff, "delete_records");
+  const approver = can(staff, "requests");
+  // The refund-requests view acts on each order's refund request instead.
+  const bulkId = status === "refunds" ? "order-refunds-bulk" : "orders-bulk";
 
   return (
     <div className="dash-page">
@@ -56,10 +61,66 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
           },
         ]}
       />
+      {status === "refunds" ? (
+        <BulkBar
+          id={bulkId}
+          action={bulkOrderRefundsAction}
+          noun="refund request"
+          ops={
+            approver
+              ? [
+                  {
+                    op: "approve",
+                    label: "Approve refunds",
+                    confirm: "Approve {n} refunds? Each customer is emailed.",
+                  },
+                  {
+                    op: "reject",
+                    label: "Reject",
+                    danger: true,
+                    confirm: "Reject {n} refunds? Each customer is emailed your note.",
+                  },
+                ]
+              : [
+                  { op: "verify_approve", label: "Verify — recommend approve" },
+                  { op: "verify_reject", label: "Verify — recommend reject" },
+                ]
+          }
+          fields={[
+            {
+              name: "note",
+              label: approver ? "Note to the customers (needed to reject)" : "Note for the admin",
+            },
+          ]}
+        />
+      ) : (
+        <BulkBar
+          id={bulkId}
+          action={bulkOrdersAction}
+          noun="order"
+          ops={[
+            { op: "packed", label: "Mark packed" },
+            { op: "shipped", label: "Mark shipped" },
+            { op: "delivered", label: "Mark delivered" },
+            {
+              op: "delete",
+              label: canDelete ? "Delete" : "Request deletion",
+              danger: true,
+              confirm: canDelete
+                ? "Delete {n} orders permanently? This cannot be undone."
+                : "Ask an admin to delete {n} orders?",
+            },
+          ]}
+          fields={canDelete ? [] : [{ name: "reason", label: "Reason (for delete requests)" }]}
+        />
+      )}
       <div className="table-scroll">
         <table className="dash-table">
           <thead>
             <tr>
+              <th className="bulk-col">
+                <BulkAll form={bulkId} />
+              </th>
               <th>Order</th>
               <th>Customer</th>
               <th>Date</th>
@@ -71,6 +132,9 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
           <tbody>
             {res.rows.map((o) => (
               <tr key={o.id}>
+                <td className="bulk-col">
+                  <BulkCheck form={bulkId} value={o.id} label={`Select order ${o.id}`} />
+                </td>
                 <td>
                   <Link href={adminHref(`orders/${o.id}`)}>
                     <b>{o.id}</b>

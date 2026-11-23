@@ -7,7 +7,8 @@ import { adminHref, requirePage } from "@/lib/staff";
 import { ActionForm } from "@/components/dashboard/action-form";
 import { pageNum } from "@/components/dashboard/list-tools";
 import { Pagination } from "@/components/shop/pagination";
-import { decideRequestAction } from "../actions";
+import { BulkBar, BulkCheck } from "@/components/dashboard/bulk-bar";
+import { bulkRefundRequestsAction, bulkRequestsAction, decideRequestAction } from "../actions";
 
 export default async function RequestsPage({
   searchParams,
@@ -53,12 +54,34 @@ export default async function RequestsPage({
           Customer refund requests{" "}
           <small className="muted">{view === "pending" ? `${refunds.total} open` : "recently decided"}</small>
         </h2>
+        {view === "pending" && refunds.rows.length > 0 && (
+          <BulkBar
+            id="refund-bulk"
+            action={bulkRefundRequestsAction}
+            noun="refund request"
+            ops={[
+              {
+                op: "approve",
+                label: "Approve refunds",
+                confirm: "Approve {n} refunds? Each customer is emailed.",
+              },
+              {
+                op: "reject",
+                label: "Reject",
+                danger: true,
+                confirm: "Reject {n} refunds? Each customer is emailed your note.",
+              },
+            ]}
+            fields={[{ name: "note", label: "Note to the customers (needed to reject)" }]}
+          />
+        )}
         {refunds.rows.map(({ request, customer }) => (
           <RefundRequestCard
             key={request.id}
             r={request}
             isAdmin
             canVerify
+            bulkForm="refund-bulk"
             customer={customer}
             orderHref={adminHref(`orders/${encodeURIComponent(request.orderId)}`)}
           />
@@ -75,10 +98,25 @@ export default async function RequestsPage({
         )}
       </section>
       <h2 className="dash-subheading">Staff requests</h2>
+      {view === "pending" && (
+        <BulkBar
+          id="requests-bulk"
+          action={bulkRequestsAction}
+          noun="request"
+          ops={[
+            { op: "approve", label: "Approve & do it", confirm: "Approve and carry out {n} requests?" },
+            { op: "reject", label: "Reject", danger: true, confirm: "Reject {n} requests?" },
+          ]}
+          fields={[{ name: "note", label: "Note (optional)" }]}
+        />
+      )}
       <div className="dash-grid">
         {res.rows.map((r) => (
           <section key={r.id} className="dash-panel">
             <h2>
+              {r.status === "pending" && (
+                <BulkCheck form="requests-bulk" value={r.id} label="Select this request" />
+              )}{" "}
               {r.type === "refund"
                 ? "Refund order"
                 : r.type === "delete_order"

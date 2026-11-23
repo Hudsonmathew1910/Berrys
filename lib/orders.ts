@@ -9,6 +9,7 @@ import { serverEnv } from "@/lib/env";
 import { logError } from "@/lib/error-log";
 import { getSettings, shippingRule } from "@/lib/settings";
 import { activeOffers, bestPrice } from "@/lib/offers";
+import { inShop } from "@/lib/store-data";
 import { createRazorpayOrder } from "@/lib/razorpay";
 import type { CheckoutInput } from "@/lib/validation";
 
@@ -229,7 +230,7 @@ export async function createPendingOrder(input: CheckoutInput, viewer: Viewer, p
     const found = await tx
       .select()
       .from(products)
-      .where(and(inArray(products.id, ids), eq(products.active, true)));
+      .where(and(inArray(products.id, ids), inShop()));
 
     let subtotal = 0;
     const priced = [...lines.values()].map((line) => {
