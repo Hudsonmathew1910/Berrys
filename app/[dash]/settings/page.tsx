@@ -134,7 +134,31 @@ export default async function SettingsPage() {
           <p>
             <StatusDot ok={rzp}>{rzp ? "Razorpay keys are set" : "Razorpay keys not set yet"}</StatusDot>
           </p>
-          <ActionForm action={paymentModeAction}>
+          <ActionForm
+            action={paymentModeAction}
+            confirmOff={
+              s.paymentMode === "razorpay"
+                ? {
+                    field: "on",
+                    title: "Turn off Razorpay?",
+                    confirmLabel: "Turn off and use demo payments",
+                    message: (
+                      <>
+                        <p>
+                          <b>Demo payments will switch on.</b> Customers will be able to place orders{" "}
+                          <b>without paying anything</b>.
+                        </p>
+                        <p>
+                          Demo orders are marked “DEMO” and deleted automatically 1 minute later, with their
+                          stock put back. Nothing will be shipped or paid for.
+                        </p>
+                        <p>Only do this for testing. Turn Razorpay back on before real customers shop.</p>
+                      </>
+                    ),
+                  }
+                : undefined
+            }
+          >
             <Toggle
               name="on"
               title="Razorpay payments"
