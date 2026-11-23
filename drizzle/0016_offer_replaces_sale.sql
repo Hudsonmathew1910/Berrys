@@ -1,0 +1,1 @@
+ALTER TABLE "offers" ADD COLUMN "replaced" text[] DEFAULT '{}'::text[] NOT NULL;

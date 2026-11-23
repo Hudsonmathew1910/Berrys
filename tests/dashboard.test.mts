@@ -116,8 +116,12 @@ const o = (x: object) => ({
   productId: null,
   excluded: [],
   stacked: [],
+  replaced: [],
+  endsAt: null,
   ...x,
 });
+// Price + label (end time checked separately).
+const pl = (r: { price: number; offer: string }) => ({ price: r.price, offer: r.offer });
 await test("pricing: best offer wins from the MRP, never below ₹1", () => {
   const base = { id: "a", category: "Dresses", price: 1000 };
   const offers = [
@@ -125,10 +129,10 @@ await test("pricing: best offer wins from the MRP, never below ₹1", () => {
     o({ name: "₹250 dresses", type: "flat", value: 250, scope: "category", targets: ["Dresses"] }),
     o({ name: "other", type: "percent", value: 50, scope: "product", targets: ["zzz"] }),
   ];
-  assert.deepEqual(bestPrice(base, offers as never), { price: 750, offer: "₹250 dresses" });
+  assert.deepEqual(pl(bestPrice(base, offers as never)), { price: 750, offer: "₹250 dresses" });
   assert.equal(bestPrice({ ...base, category: "Tops" }, offers as never).price, 900);
   assert.equal(bestPrice(base, [o({ type: "flat", value: 99999, scope: "all" })] as never).price, 1);
-  assert.deepEqual(bestPrice(base, [] as never), { price: 1000, offer: "" });
+  assert.deepEqual(pl(bestPrice(base, [] as never)), { price: 1000, offer: "" });
 });
 await test("pricing: own sale price vs offers — better wins, Skip, Apply both", () => {
   const base = { id: "a", category: "Dresses", price: 1000 };
@@ -142,20 +146,39 @@ await test("pricing: own sale price vs offers — better wins, Skip, Apply both"
   });
   const all10 = (x: object = {}) => o({ name: "10% all", type: "percent", value: 10, scope: "all", ...x });
   const all30 = (x: object = {}) => o({ name: "30% all", type: "percent", value: 30, scope: "all", ...x });
-  assert.deepEqual(bestPrice(base, [sale] as never), { price: 800, offer: "Special price" });
+  assert.deepEqual(pl(bestPrice(base, [sale] as never)), { price: 800, offer: "Special price" });
   // Undecided: each worked out on its own, the lower one wins.
-  assert.deepEqual(bestPrice(base, [sale, all10()] as never), { price: 800, offer: "Special price" });
-  assert.deepEqual(bestPrice(base, [sale, all30()] as never), { price: 700, offer: "30% all" });
+  assert.deepEqual(pl(bestPrice(base, [sale, all10()] as never)), { price: 800, offer: "Special price" });
+  assert.deepEqual(pl(bestPrice(base, [sale, all30()] as never)), { price: 700, offer: "30% all" });
   // Skip: the offer leaves this product on its sale price.
-  assert.deepEqual(bestPrice(base, [sale, all30({ excluded: ["a"] })] as never), {
+  assert.deepEqual(pl(bestPrice(base, [sale, all30({ excluded: ["a"] })] as never)), {
     price: 800,
     offer: "Special price",
   });
   // Apply both: 10% off the ₹800 sale price.
-  assert.deepEqual(bestPrice(base, [sale, all10({ stacked: ["a"] })] as never), {
+  assert.deepEqual(pl(bestPrice(base, [sale, all10({ stacked: ["a"] })] as never)), {
     price: 720,
     offer: "Special price + 10% all",
   });
+  // Replace: while the offer runs it is used instead of the sale price (30% off the ₹1000 MRP)…
+  assert.deepEqual(pl(bestPrice(base, [sale, all10({ replaced: ["a"] })] as never)), {
+    price: 900,
+    offer: "10% all",
+  });
+  // …and once it ends (no longer live), the sale price is back.
+  assert.deepEqual(pl(bestPrice(base, [sale] as never)), { price: 800, offer: "Special price" });
+  // End time: the earliest end of what made the price.
+  const tonight = new Date(Date.now() + 3_600_000);
+  const later = new Date(Date.now() + 7_200_000);
+  assert.equal(bestPrice(base, [all30({ endsAt: tonight })] as never).endsAt?.getTime(), tonight.getTime());
+  assert.equal(
+    bestPrice(base, [
+      { ...sale, endsAt: later },
+      all10({ stacked: ["a"], endsAt: tonight }),
+    ] as never).endsAt?.getTime(),
+    tonight.getTime(),
+  );
+  assert.equal(bestPrice(base, [sale] as never).endsAt, null);
   // Exactly the sums a customer expects: ₹100 with 10% off = ₹90.
   assert.equal(bestPrice({ id: "b", category: "X", price: 100 }, [all10()] as never).price, 90);
 });
@@ -201,10 +224,62 @@ await test("saving an offer asks about products with their own sale price", asyn
   assert.equal((await store.getProduct("berry-1"))!.offer, "Special price + Co-ord half");
   const { replaced } = await cat.saveOffer({ ...offer, id: saved.id }, { "berry-1": "replace" });
   assert.equal(replaced, 1);
-  assert.equal((await q(sql`select 1 from offers where product_id='berry-1'`)).length, 0);
+  // Replace keeps the sale price; the offer is used instead while it runs.
+  assert.equal((await q(sql`select 1 from offers where product_id='berry-1'`)).length, 1);
   assert.equal((await store.getProduct("berry-1"))!.price, 449); // 50% off the ₹899 MRP
+  // Offer ends → the sale price is back.
+  await q(sql`update offers set ends_at = now() - interval '1 second' where id=${saved.id}`);
+  assert.equal((await store.getProduct("berry-1"))!.price, 699);
   await cat.deleteOffer(saved.id);
-  assert.equal((await store.getProduct("berry-1"))!.price, 899);
+  assert.equal((await store.getProduct("berry-1"))!.price, 699);
+});
+await test("product editor: choices for offers that also cover it (Skip / Apply both / Replace / Lower wins)", async () => {
+  const { offer: o30 } = await cat.saveOffer(
+    {
+      name: "Co-ord 30",
+      type: "percent",
+      value: 30,
+      scope: "category",
+      targets: ["Co-ord sets"],
+      startsAt: new Date(Date.now() - 60000),
+      endsAt: new Date(Date.now() + 3_600_000),
+      active: true,
+    },
+    { "berry-1": "skip" },
+  );
+  const covering = await cat.offersCovering({ id: "berry-1", category: "Co-ord sets" });
+  assert.deepEqual(
+    covering.map((c) => [c.name, c.choice]),
+    [["Co-ord 30", "skip"]],
+  );
+  const row = (await cat.getAdminProduct("berry-1"))!;
+  const save = (choice: string) =>
+    cat.saveProduct(
+      {
+        ...(row as never as object),
+        id: "berry-1",
+        price: row.basePrice,
+        salePrice: 699,
+        saleStartsAt: "",
+        saleEndsAt: "",
+        version: undefined,
+        stockBase: undefined,
+        offerChoices: { [o30.id]: choice },
+      } as never,
+      "tester",
+    );
+  const price = async () => (await store.getProduct("berry-1"))!;
+  assert.equal((await price()).price, 699); // skip
+  await save("both");
+  assert.equal((await price()).price, 489); // 30% off ₹699
+  assert.ok((await price()).offerEndsAt); // the offer's end time reaches the shop
+  await save("replace");
+  assert.equal((await price()).price, 629); // 30% off the ₹899 MRP
+  await save("better");
+  assert.equal((await price()).price, 629); // lower of ₹699 and ₹629
+  const [r] = await q(sql`select excluded, stacked, replaced from offers where id=${o30.id}`);
+  assert.deepEqual([r.excluded, r.stacked, r.replaced], [[], [], []]);
+  await cat.deleteOffer(o30.id);
 });
 await test("saveProduct logs stock changes; search finds tags", async () => {
   const id = await cat.saveProduct(

@@ -2,9 +2,34 @@
 import { useActionState, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AlertCircle, ArrowDown, ArrowUp, CheckCircle2, Loader2, Upload, X } from "lucide-react";
-import { MAX_IMAGES, type Category } from "@/lib/catalog";
+import { applyOffer, MAX_IMAGES, money, type Category } from "@/lib/catalog";
 import { api } from "@/components/store/api";
 import { saveProductAction } from "@/app/[dash]/actions";
+
+export type OfferChoice = "better" | "skip" | "both" | "replace";
+const choiceText: Record<OfferChoice, string> = {
+  better: "Lower price wins",
+  skip: "Sale price only (offer skips it)",
+  both: "Apply both (offer off the sale price)",
+  replace: "Offer replaces the sale price while it runs",
+};
+const fmt = (iso: string) =>
+  new Date(iso).toLocaleString("en-IN", {
+    timeZone: "Asia/Kolkata",
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
+
+/** A category / store / product offer that also covers this product. */
+export type CoveringOffer = {
+  id: string;
+  name: string;
+  type: "percent" | "flat";
+  value: number;
+  active: boolean;
+  endsAt: string | null;
+  choice: OfferChoice;
+};
 
 export type EditableProduct = {
   id: string;
@@ -33,10 +58,13 @@ export function ProductEditor({
   initial,
   categories,
   listHref,
+  offers = [],
 }: {
   initial: EditableProduct;
   categories: Pick<Category, "name" | "sizes">[];
   listHref: string;
+  /** Offers that also cover this product (existing products). */
+  offers?: CoveringOffer[];
 }) {
   const router = useRouter();
   const [p, setP] = useState(initial);
@@ -44,6 +72,7 @@ export function ProductEditor({
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState("");
   const [state, action, pending] = useActionState(saveProductAction, {});
+  const [choices, setChoices] = useState<Record<string, OfferChoice>>({});
   const set = (patch: Partial<EditableProduct>) => setP((x) => ({ ...x, ...patch }));
   const sizes = categories.find((c) => c.name === p.category)?.sizes ?? [];
 
@@ -88,6 +117,7 @@ export function ProductEditor({
     // What the form started from: the server applies only the difference.
     stockBase: initial.id ? initial.stock : undefined,
     version: initial.version,
+    offerChoices: p.salePrice > 0 ? choices : {},
   });
 
   return (
@@ -299,7 +329,67 @@ export function ProductEditor({
         )}
       </section>
 
+      {p.salePrice > 0 && p.salePrice < p.price && offers.length > 0 && (
+        <section className="dash-panel offer-conflicts">
+          <h2>Offers that also cover this product</h2>
+          <p className="muted">
+            It has a sale price of {money(p.salePrice)} (MRP {money(p.price)}). Choose how each offer treats
+            it — the price is what customers would pay while the offer runs.
+          </p>
+          <div className="table-scroll">
+            <table className="dash-table compact">
+              <thead>
+                <tr>
+                  <th>Offer</th>
+                  <th>Runs</th>
+                  <th>Choice (customer pays)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {offers.map((o) => {
+                  const fromMrp = applyOffer(o, p.price);
+                  const prices: Record<OfferChoice, number> = {
+                    better: Math.min(p.salePrice, fromMrp),
+                    skip: p.salePrice,
+                    both: applyOffer(o, p.salePrice),
+                    replace: fromMrp,
+                  };
+                  return (
+                    <tr key={o.id}>
+                      <td>
+                        {o.name}
+                        <small className="block muted">
+                          {o.type === "percent" ? `${o.value}% off` : `${money(o.value)} off`}
+                          {!o.active && " · switched off"}
+                        </small>
+                      </td>
+                      <td className="muted">{o.endsAt ? `until ${fmt(o.endsAt)}` : "no end date"}</td>
+                      <td>
+                        <select
+                          aria-label={`Choice for ${o.name}`}
+                          value={choices[o.id] ?? o.choice}
+                          onChange={(e) =>
+                            setChoices((c) => ({ ...c, [o.id]: e.target.value as OfferChoice }))
+                          }
+                        >
+                          {(Object.keys(choiceText) as OfferChoice[]).map((c) => (
+                            <option key={c} value={c}>
+                              {choiceText[c]} → {money(prices[c])}
+                            </option>
+                          ))}
+                        </select>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
+
       <div className="editor-actions">
+        {" "}
         {(state.ok || state.error) && (
           <p key={state.at} className={state.error ? "form-msg error" : "form-msg ok"} role="status">
             {state.error ? <AlertCircle size={14} /> : <CheckCircle2 size={14} />} {state.error ?? state.ok}

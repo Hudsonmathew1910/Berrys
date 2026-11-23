@@ -593,7 +593,7 @@ export async function saveOfferAction(_: ActionResult, f: FormData) {
     );
     return done(
       replaced
-        ? `Offer saved. Removed the own sale price of ${plural(replaced, "product")} (they now get this offer).`
+        ? `Offer saved. It replaces the sale price of ${plural(replaced, "product")} while it runs — their sale price comes back when it ends.`
         : "Offer saved.",
     );
   });

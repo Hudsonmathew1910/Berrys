@@ -42,7 +42,7 @@ export async function hydrateProducts(rows: ProductRow[]): Promise<Product[]> {
     const catSizes = cats.find((c) => c.name === p.category)?.sizes ?? DEFAULT_SIZES;
     // Category sizes first, then any older sizes that still hold stock.
     const sizes = [...catSizes, ...own.map((v) => v.size).filter((s) => !catSizes.includes(s))];
-    const { price, offer } = bestPrice(p, offers);
+    const { price, offer, endsAt } = bestPrice(p, offers);
     return {
       id: p.id,
       name: p.name,
@@ -54,6 +54,7 @@ export async function hydrateProducts(rows: ProductRow[]): Promise<Product[]> {
       basePrice: p.price,
       originalPrice: p.price,
       offer,
+      offerEndsAt: endsAt ? endsAt.toISOString() : null,
       description: p.description,
       image: p.image,
       images: p.images.length ? p.images : [p.image],

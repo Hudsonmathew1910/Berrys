@@ -13,7 +13,17 @@ export const OFFERS_TAG = "offers";
 /** Price-relevant fields only (dates stay in the database query). */
 export type ActiveOffer = Pick<
   Offer,
-  "id" | "name" | "type" | "value" | "scope" | "targets" | "productId" | "excluded" | "stacked"
+  | "id"
+  | "name"
+  | "type"
+  | "value"
+  | "scope"
+  | "targets"
+  | "productId"
+  | "excluded"
+  | "stacked"
+  | "replaced"
+  | "endsAt"
 >;
 
 /** Shown to customers for a product's own sale price. */
@@ -34,6 +44,8 @@ const loadActiveOffers = unstable_cache(
         productId: offers.productId,
         excluded: offers.excluded,
         stacked: offers.stacked,
+        replaced: offers.replaced,
+        endsAt: offers.endsAt,
       })
       .from(offers)
       .where(
@@ -44,7 +56,7 @@ const loadActiveOffers = unstable_cache(
         ),
       );
   },
-  ["active-offers-v2"],
+  ["active-offers-v3"],
   // Short lifetime so scheduled offers start/end within a minute.
   { tags: [OFFERS_TAG], revalidate: 60 },
 );
@@ -55,30 +67,40 @@ export const activeOffers = cache(() => loadActiveOffers());
 /**
  * What a customer pays for a product right now. `p.price` is the MRP.
  *
- * - The product's own sale price (an offer with `productId`) is the starting point when it's live.
+ * - The product's own sale price (an offer with `productId`) is the starting point when it's live —
+ *   unless a live offer is set to "Replace" it, which sets it aside only while that offer runs.
  * - Each category / store / product offer that covers it is worked out from the MRP — or from the
- *   sale price when the offer is set to "Apply both" for this product — and skipped when it is set
- *   to "Skip" for this product.
- * - The customer gets the lowest result; `offer` names what made it.
+ *   sale price when set to "Apply both" — and leaves it alone when set to "Skip".
+ * - The customer gets the lowest result; `offer` names what made it and `endsAt` is when that price
+ *   stops (the earliest end of the offers used; null = no end).
  */
 export function bestPrice(
   p: { id: string; category: string; price: number },
   offers: ActiveOffer[],
-): { price: number; offer: string } {
+): { price: number; offer: string; endsAt: Date | null } {
   const mrp = p.price;
-  const sale = offers.find((o) => o.productId === p.id);
+  const covers = (o: ActiveOffer) =>
+    o.scope === "all" ||
+    (o.scope === "category" && o.targets.includes(p.category)) ||
+    (o.scope === "product" && o.targets.includes(p.id));
+  const promos = offers.filter((o) => !o.productId && covers(o));
+  const ownSale = offers.find((o) => o.productId === p.id);
+  const sale = ownSale && !promos.some((o) => o.replaced.includes(p.id)) ? ownSale : undefined;
   const salePrice = sale ? applyOffer(sale, mrp) : mrp;
-  let best = { price: salePrice, offer: sale && salePrice < mrp ? sale.name : "" };
-  for (const o of offers) {
-    if (o.productId) continue;
-    const covers =
-      o.scope === "all" ||
-      (o.scope === "category" && o.targets.includes(p.category)) ||
-      (o.scope === "product" && o.targets.includes(p.id));
-    if (!covers || o.excluded.includes(p.id)) continue;
+  const earliest = (...ds: (Date | null | undefined)[]) =>
+    ds.reduce<Date | null>((a, d) => (d && (!a || new Date(d) < a) ? new Date(d) : a), null);
+  let best =
+    sale && salePrice < mrp
+      ? { price: salePrice, offer: sale.name, endsAt: earliest(sale.endsAt) }
+      : { price: mrp, offer: "", endsAt: null as Date | null };
+  for (const o of promos) {
+    if (o.excluded.includes(p.id) && sale) continue;
     const both = !!sale && o.stacked.includes(p.id);
     const price = applyOffer(o, both ? salePrice : mrp);
-    if (price < best.price) best = { price, offer: both ? `${sale!.name} + ${o.name}` : o.name };
+    if (price < best.price)
+      best = both
+        ? { price, offer: `${sale!.name} + ${o.name}`, endsAt: earliest(sale!.endsAt, o.endsAt) }
+        : { price, offer: o.name, endsAt: earliest(o.endsAt) };
   }
   return best;
 }

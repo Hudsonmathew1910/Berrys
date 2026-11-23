@@ -70,7 +70,7 @@ export default async function OffersPage() {
                   <span className={"status-pill " + (st === "Live" ? "" : "out")}>{st}</span>
                 </h3>
                 <OfferForm
-                  key={`${o.id}:${o.excluded.join()}:${o.stacked.join()}:${o.targets.join()}`}
+                  key={`${o.id}:${o.excluded.join()}:${o.stacked.join()}:${o.replaced.join()}:${o.targets.join()}`}
                   {...shared}
                   offer={{
                     id: o.id,
@@ -84,6 +84,7 @@ export default async function OffersPage() {
                     active: o.active,
                     excluded: o.excluded,
                     stacked: o.stacked,
+                    replaced: o.replaced,
                   }}
                 />
                 <ActionForm action={deleteOfferAction} confirm={`Delete the offer “${o.name}”?`}>

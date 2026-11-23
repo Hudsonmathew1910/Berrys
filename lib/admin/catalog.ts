@@ -1,5 +1,5 @@
 import "server-only";
-import { and, asc, desc, eq, ilike, inArray, isNull, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, ilike, isNull, or, sql, type SQL } from "drizzle-orm";
 import { getDb, schema } from "@/db";
 import { HttpError } from "@/lib/http-error";
 import { hydrateProducts } from "@/lib/store-data";
@@ -164,6 +164,25 @@ export async function saveProduct(input: ProductInput, actor: string) {
     } else {
       await tx.delete(offers).where(eq(offers.productId, id));
     }
+    // How each category / store offer treats this product's sale price (chosen in the editor).
+    for (const [offerId, choice] of Object.entries(input.offerChoices ?? {})) {
+      if (!/^[0-9a-f-]{36}$/i.test(offerId)) continue;
+      const add = (
+        col: typeof offers.excluded | typeof offers.stacked | typeof offers.replaced,
+        on: boolean,
+      ) =>
+        on
+          ? sql`array_append(array_remove(${col}, ${id}::text), ${id}::text)`
+          : sql`array_remove(${col}, ${id}::text)`;
+      await tx
+        .update(offers)
+        .set({
+          excluded: add(offers.excluded, choice === "skip"),
+          stacked: add(offers.stacked, choice === "both"),
+          replaced: add(offers.replaced, choice === "replace"),
+        })
+        .where(and(eq(offers.id, offerId), isNull(offers.productId)));
+    }
   });
   return id;
 }
@@ -207,9 +226,10 @@ export async function deleteProduct(id: string) {
       targets: sql`case when ${offers.scope} = 'product' then array_remove(${offers.targets}, ${id}) else ${offers.targets} end`,
       excluded: sql`array_remove(${offers.excluded}, ${id})`,
       stacked: sql`array_remove(${offers.stacked}, ${id})`,
+      replaced: sql`array_remove(${offers.replaced}, ${id})`,
     })
     .where(
-      sql`${id} = any(${offers.targets}) or ${id} = any(${offers.excluded}) or ${id} = any(${offers.stacked})`,
+      sql`${id} = any(${offers.targets}) or ${id} = any(${offers.excluded}) or ${id} = any(${offers.stacked}) or ${id} = any(${offers.replaced})`,
     );
   return p.name;
 }
@@ -458,7 +478,8 @@ const covers = (o: { scope: string; targets: string[] }, p: { productId: string;
 /**
  * Saves a category / store / product offer. Products it covers that have their own (not ended) sale
  * price need a choice — from `decisions` or from this offer's earlier choices:
- * replace = their sale price is removed · skip = this offer leaves them alone · both = it comes off their sale price.
+ * replace = this offer is used instead of their sale price while it runs (the sale price is kept and comes back after)
+ * · skip = this offer leaves them alone · both = it comes off their sale price.
  */
 export async function saveOffer(
   data: {
@@ -495,18 +516,17 @@ export async function saveOffer(
     ).filter((s) => (!s.endsAt || s.endsAt > now) && covers(values, s));
     const excluded = new Set(prev?.excluded ?? []);
     const stacked = new Set(prev?.stacked ?? []);
-    const replace: string[] = [];
+    const replaced = new Set(prev?.replaced ?? []);
     for (const s of sales) {
       const choice = decisions[s.productId];
       if (!choice) continue;
       excluded.delete(s.productId);
       stacked.delete(s.productId);
-      if (choice === "skip") excluded.add(s.productId);
-      else if (choice === "both") stacked.add(s.productId);
-      else replace.push(s.productId);
+      replaced.delete(s.productId);
+      (choice === "skip" ? excluded : choice === "both" ? stacked : replaced).add(s.productId);
     }
     const undecided = sales.filter(
-      (s) => !excluded.has(s.productId) && !stacked.has(s.productId) && !replace.includes(s.productId),
+      (s) => !excluded.has(s.productId) && !stacked.has(s.productId) && !replaced.has(s.productId),
     );
     if (undecided.length) {
       const names = undecided
@@ -524,12 +544,12 @@ export async function saveOffer(
       ...values,
       excluded: [...excluded].filter((x) => inScope.has(x)),
       stacked: [...stacked].filter((x) => inScope.has(x)),
+      replaced: [...replaced].filter((x) => inScope.has(x)),
     };
-    if (replace.length) await tx.delete(offers).where(inArray(offers.productId, replace));
     const [o] = id
       ? await tx.update(offers).set(row).where(eq(offers.id, id)).returning()
       : await tx.insert(offers).values(row).returning();
-    return { offer: o, replaced: replace.length };
+    return { offer: o, replaced: row.replaced.length };
   });
 }
 
@@ -571,4 +591,34 @@ export async function productOptions() {
     .from(products)
     .orderBy(asc(products.name))
     .limit(1000);
+}
+
+/** Category / store / product offers that cover this product and haven't ended — with how each treats its sale price. */
+export async function offersCovering(p: { id: string; category: string }) {
+  const rows = await getDb()
+    .select()
+    .from(offers)
+    .where(and(isNull(offers.productId), or(isNull(offers.endsAt), sql`${offers.endsAt} > now()`)));
+  return rows
+    .filter(
+      (o) =>
+        o.scope === "all" ||
+        (o.scope === "category" && o.targets.includes(p.category)) ||
+        (o.scope === "product" && o.targets.includes(p.id)),
+    )
+    .map((o) => ({
+      id: o.id,
+      name: o.name,
+      type: o.type === "flat" ? ("flat" as const) : ("percent" as const),
+      value: o.value,
+      active: o.active,
+      endsAt: o.endsAt ? o.endsAt.toISOString() : null,
+      choice: o.excluded.includes(p.id)
+        ? ("skip" as const)
+        : o.stacked.includes(p.id)
+          ? ("both" as const)
+          : o.replaced.includes(p.id)
+            ? ("replace" as const)
+            : ("better" as const),
+    }));
 }

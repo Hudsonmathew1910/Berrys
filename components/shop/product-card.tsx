@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { Heart } from "lucide-react";
-import { discountPercent, isSoldOut, money, type Product } from "@/lib/catalog";
+import { discountPercent, isSoldOut, money, offerEndsText, type Product } from "@/lib/catalog";
 import { toggleLike, useLikes } from "@/components/store/bag";
 
 /** Product tile used on the home page, shop listing, favourites and "you may also like". */
@@ -53,6 +53,7 @@ export function ProductCard({ product: p, eager = false }: { product: Product; e
           </>
         )}
       </div>
+      {p.offerEndsAt && <div className="offer-ends">{offerEndsText(p.offerEndsAt)}</div>}
       <div className="card-sizes" aria-label="Sizes">
         {p.sizes.map((s) => (
           <span

@@ -21,12 +21,13 @@ export type OfferValues = {
   active: boolean;
   excluded: string[];
   stacked: string[];
+  replaced: string[];
 };
 /** A product's own sale price (not ended). */
 export type SaleInfo = { productId: string; name: string; category: string; mrp: number; sale: number };
 
 const choiceLabel: Record<Choice, string> = {
-  replace: "Replace its sale price",
+  replace: "Replace its sale price while this offer runs",
   skip: "Skip (keep its sale price)",
   both: "Apply both",
 };
@@ -64,6 +65,7 @@ export function OfferForm({
   const [choices, setChoices] = useState<Record<string, Choice>>(() => ({
     ...Object.fromEntries((offer?.excluded ?? []).map((id) => [id, "skip" as const])),
     ...Object.fromEntries((offer?.stacked ?? []).map((id) => [id, "both" as const])),
+    ...Object.fromEntries((offer?.replaced ?? []).map((id) => [id, "replace" as const])),
   }));
   const [localError, setLocalError] = useState("");
   const ref = useRef<HTMLFormElement>(null);
@@ -277,8 +279,8 @@ export function OfferForm({
               </table>
             </div>
             <small className="muted">
-              Replace removes the product’s own sale price. Skip leaves it on its sale price. Apply both takes
-              this offer off the sale price.
+              Replace uses this offer instead of the sale price while the offer runs — the sale price comes
+              back after. Skip leaves it on its sale price. Apply both takes this offer off the sale price.
             </small>
           </div>
         )}

@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { ArrowRight, Loader2, Minus, Plus, ShoppingBag, Trash2 } from "lucide-react";
-import { money, shippingFor } from "@/lib/catalog";
+import { money, offerEndsText, shippingFor } from "@/lib/catalog";
 import { bagStore, bagTotals, useBag } from "@/components/store/bag";
 import { useToast } from "@/components/store/toast";
 import { useProducts } from "./use-products";
@@ -86,7 +86,12 @@ export function CartView({
                       </>
                     )}
                   </p>
-                  {p.offer && <small className="offer-note">{p.offer}</small>}
+                  {p.offer && (
+                    <small className="offer-note">
+                      {p.offer}
+                      {p.offerEndsAt && <> · {offerEndsText(p.offerEndsAt)}</>}
+                    </small>
+                  )}
                   {stock < line.quantity && (
                     <small className="form-error">
                       {stock

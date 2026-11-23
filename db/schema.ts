@@ -368,6 +368,14 @@ export const offers = pgTable("offers", {
     .array()
     .notNull()
     .default(sql`'{}'::text[]`),
+  /**
+   * Category / store offers: products whose sale price this offer replaces while it runs ("Replace").
+   * The sale price itself is kept and comes back when this offer ends.
+   */
+  replaced: text("replaced")
+    .array()
+    .notNull()
+    .default(sql`'{}'::text[]`),
   /** Category / store offers: products where this offer comes off their sale price ("Apply both"). */
   stacked: text("stacked")
     .array()

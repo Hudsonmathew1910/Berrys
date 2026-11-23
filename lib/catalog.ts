@@ -28,6 +28,8 @@ export type Product = {
   originalPrice: number;
   /** Name of the offer currently applied, if any. */
   offer: string;
+  /** When today's offer price ends (ISO time), or null when it has no end / there's no offer. */
+  offerEndsAt: string | null;
   description: string;
   image: string;
   images: string[];
@@ -85,4 +87,24 @@ export function applyOffer(o: { type: "percent" | "flat" | "price"; value: numbe
         ? from - Math.round((from * Math.min(o.value, 90)) / 100)
         : from - o.value;
   return Math.max(1, next);
+}
+
+/** "Offer ends 24 Nov, 10:13 pm" (India time) — or "Offer ends today, 10:13 pm". */
+export function offerEndsText(iso: string | null, now = new Date()) {
+  if (!iso) return "";
+  const end = new Date(iso);
+  const day = (d: Date) => d.toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata" });
+  const time = end.toLocaleTimeString("en-IN", {
+    timeZone: "Asia/Kolkata",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+  const tomorrow = new Date(now.getTime() + 86_400_000);
+  const when =
+    day(end) === day(now)
+      ? `today, ${time}`
+      : day(end) === day(tomorrow)
+        ? `tomorrow, ${time}`
+        : `${end.toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata", day: "numeric", month: "short" })}, ${time}`;
+  return `Offer ends ${when}`;
 }

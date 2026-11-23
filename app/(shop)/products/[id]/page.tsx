@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Leaf, RotateCcw, ShieldCheck, Truck } from "lucide-react";
-import { discountPercent, money } from "@/lib/catalog";
+import { discountPercent, money, offerEndsText } from "@/lib/catalog";
 import { getSettings } from "@/lib/settings";
 import { getProduct, relatedProducts } from "@/lib/store-data";
 import { AddToBag } from "@/components/shop/add-to-bag";
@@ -56,7 +56,14 @@ export default async function ProductPage({ params }: Props) {
               </>
             )}
           </div>
-          {product.offer && <div className="offer-note">{product.offer}</div>}
+          {product.offer && (
+            <div className="offer-note">
+              {product.offer}
+              {product.offerEndsAt && (
+                <span className="offer-ends"> · {offerEndsText(product.offerEndsAt)}</span>
+              )}
+            </div>
+          )}
           <small className="muted">Inclusive of all taxes</small>
           <AddToBag product={product} />
           <div className="product-assurances">

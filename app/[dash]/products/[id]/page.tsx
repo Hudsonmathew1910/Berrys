@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft, ArrowUpRight } from "lucide-react";
-import { getAdminProduct, listMovements } from "@/lib/admin/catalog";
+import { getAdminProduct, listMovements, offersCovering } from "@/lib/admin/catalog";
 import { toIndiaInput } from "@/lib/catalog";
 import { getCategories } from "@/lib/categories";
 import { adminHref, can, requirePage } from "@/lib/staff";
@@ -40,6 +40,7 @@ export default async function EditProductPage({ params }: { params: Promise<{ id
       <ProductEditor
         key={p.version}
         listHref={adminHref("products")}
+        offers={await offersCovering(p)}
         categories={cats.map((c) => ({ name: c.name, sizes: c.sizes }))}
         initial={{
           id: p.id,

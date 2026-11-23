@@ -66,6 +66,15 @@ export const productSchema = z
     salePrice: z.number().int().min(0).max(1_000_000).optional().default(0),
     saleStartsAt: z.string().max(20).optional().default(""),
     saleEndsAt: z.string().max(20).optional().default(""),
+    /**
+     * For category / store offers that also cover this product (offer id → choice):
+     * better = lower price wins · skip = offer leaves it on its sale price · both = offer comes off the
+     * sale price · replace = offer is used instead of the sale price while it runs.
+     */
+    offerChoices: z
+      .record(z.string().max(60), z.enum(["better", "skip", "both", "replace"]))
+      .optional()
+      .default({}),
     description: z.string().max(5000).default(""),
     images: z
       .array(z.string().refine(isAllowedImageUrl, "Invalid image."))

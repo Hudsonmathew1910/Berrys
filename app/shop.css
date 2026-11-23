@@ -2171,3 +2171,14 @@ html {
   font-size: inherit;
   margin-left: 4px;
 }
+
+/* When the offer price ends */
+.offer-ends {
+  margin-top: 2px;
+  font-size: 10px;
+  font-weight: 600;
+  color: #a5503f;
+}
+.offer-note .offer-ends {
+  font-size: inherit;
+}
