@@ -27,7 +27,7 @@ An online store for Berry’s children’s clothing: a storefront with search, f
 
 ### The staff dashboard
 
-The dashboard lives at a **secret address** set by `ADMIN_PATH` (e.g. `ADMIN_PATH=berrys-office-7k2` → `/berrys-office-7k2`). `/admin` does not exist. Anyone who isn't an active admin or staff member gets **Page not found** there.
+The dashboard lives at a **secret address** set by `ADMIN_PATH` e.g. `ADMIN_PATH= /admin` does not exist. Anyone who isn't an active admin or staff member gets **Page not found** there.
 
 Entering takes two steps: log in to the site with Google, then enter your **dashboard password**. The dashboard stays unlocked until you lock it, log out, or close the browser (12 hours at most).
 
