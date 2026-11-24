@@ -2147,3 +2147,21 @@ button.rows-image:hover {
 .refund-next p {
   margin: 0;
 }
+
+/* Refund status (order page) */
+.status-pill.refund-state-initiated {
+  background: #fbf0d9;
+  color: #8a5a12;
+}
+.status-pill.refund-state-processed {
+  background: #edf5ef;
+  color: #2f6b3d;
+}
+.status-pill.refund-state-failed {
+  background: #fdf1ee;
+  color: #9b2c1f;
+}
+.refund-paid.initiated {
+  background: #fbf0d9;
+  color: #8a5a12;
+}

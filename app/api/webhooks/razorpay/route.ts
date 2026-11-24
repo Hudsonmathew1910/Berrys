@@ -1,3 +1,6 @@
+import { after } from "next/server";
+import { applyRefundEvent } from "@/lib/admin/orders";
+import { sendRefundProgress } from "@/lib/email";
 import { logError } from "@/lib/error-log";
 import { json } from "@/lib/http";
 import { markOrderPaid } from "@/lib/orders";
@@ -5,7 +8,7 @@ import { verifyWebhookSignature } from "@/lib/razorpay";
 
 /**
  * Razorpay webhook (Dashboard → Settings → Webhooks).
- * Subscribe to: payment.captured, order.paid
+ * Subscribe to: payment.captured, order.paid, refund.processed, refund.failed
  * URL: https://<your-domain>/api/webhooks/razorpay
  */
 const MAX_BODY = 256 * 1024;
@@ -26,6 +29,24 @@ export async function POST(request: Request) {
 
   try {
     const event = JSON.parse(raw);
+    // Where a refund's money is: processed (reached the customer) or failed (bounced).
+    if (event.event === "refund.processed" || event.event === "refund.failed") {
+      const refund = event.payload?.refund?.entity;
+      if (refund?.id) {
+        const state = event.event === "refund.processed" ? "processed" : "failed";
+        const why = String(refund.error_description ?? refund.notes?.failure_reason ?? "").slice(0, 300);
+        const changed = await applyRefundEvent(String(refund.id), state, why);
+        if (changed) {
+          after(() => sendRefundProgress(String(refund.id)));
+          if (state === "failed")
+            await logError("payment", new Error(`Refund failed at Razorpay: ${refund.id}`), {
+              path: "refund webhook",
+              ref: changed.orderId,
+            });
+        }
+      }
+      return json({ ok: true });
+    }
     if (event.event === "payment.captured" || event.event === "order.paid") {
       const payment = event.payload?.payment?.entity;
       if (payment?.order_id && payment?.id) await markOrderPaid(payment.order_id, payment.id);

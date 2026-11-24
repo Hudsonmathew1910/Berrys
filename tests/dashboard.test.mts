@@ -610,6 +610,70 @@ console.log("Refunds: part, full, requests");
       0,
     );
   });
+  await test("tracking: demo refunds are processed at once; real ones wait for Razorpay's word", async () => {
+    const o = await paidOrder("rf5@b.co");
+    const rid = await adminOrders.refundOrder(o.orderId, "tester", "test");
+    const [r] = await q(
+      sql`select gateway_status, processed_at from order_refunds where razorpay_refund_id=${rid}`,
+    );
+    assert.equal(r.gateway_status, "processed");
+    assert.ok(r.processed_at);
+    // Pretend it was a real refund still on its way, then Razorpay says "processed" (twice).
+    await q(
+      sql`update order_refunds set gateway_status='initiated', processed_at=null, razorpay_refund_id='rfnd_TRACK1' where razorpay_refund_id=${rid}`,
+    );
+    const first = await adminOrders.applyRefundEvent("rfnd_TRACK1", "processed");
+    assert.equal(first?.gatewayStatus, "processed");
+    assert.equal(await adminOrders.applyRefundEvent("rfnd_TRACK1", "processed"), null); // repeat = no change
+    assert.equal(await adminOrders.applyRefundEvent("rfnd_UNKNOWN", "processed"), null);
+  });
+
+  await test("tracking: a failed refund is no longer counted; the order is flagged and can be refunded again", async () => {
+    const o = await paidOrder("rf6@b.co");
+    const rid = await adminOrders.refundOrder(o.orderId, "tester", "test");
+    await q(
+      sql`update order_refunds set gateway_status='initiated', razorpay_refund_id='rfnd_TRACK2' where razorpay_refund_id=${rid}`,
+    );
+    assert.equal((await row(o.orderId)).status, "refunded");
+    const failed = await adminOrders.applyRefundEvent("rfnd_TRACK2", "failed", "Bank account closed");
+    assert.equal(failed?.gatewayStatus, "failed");
+    const r = await row(o.orderId);
+    assert.equal(r.status, "needs_refund");
+    assert.equal(r.refunded_amount, 0);
+    const [ev] = await q(
+      sql`select note from order_events where order_id=${o.orderId} and status='refund_failed'`,
+    );
+    assert.match(ev.note, /Bank account closed/);
+    // Send it again: works, and the order is refunded once more.
+    await adminOrders.refundOrder(o.orderId, "tester", "again");
+    assert.equal((await row(o.orderId)).status, "refunded");
+    assert.equal((await row(o.orderId)).refunded_amount, 1500);
+  });
+
+  await test("tracking: a failed payout of a customer request can be sent again", async () => {
+    const o = await paidOrder("rf7@b.co");
+    const [u] = await q(sql`insert into users (email, name) values ('rf7@b.co','Rf7') returning id`);
+    await q(sql`update orders set user_id=${u.id} where id=${o.orderId}`);
+    const { request } = await refundsLib.createRefundRequest(
+      u.id,
+      o.orderId,
+      { wholeOrder: true, items: [], reason: "Damaged or defective", details: "" },
+      await getSettings(),
+    );
+    await refundsLib.decideRefundRequest(request.id, "approved", "admin", "");
+    const { refundId } = await refundsLib.payRefundRequest(request.id, "admin");
+    await q(
+      sql`update order_refunds set gateway_status='initiated', razorpay_refund_id='rfnd_TRACK3' where razorpay_refund_id=${refundId}`,
+    );
+    await adminOrders.applyRefundEvent("rfnd_TRACK3", "failed", "Card closed");
+    const [req] = await q(sql`select payout_error from refund_requests where id=${request.id}`);
+    assert.match(req.payout_error, /Card closed/);
+    assert.equal((await refundsLib.payoutsFor([request.id])).size, 0); // shows as not sent
+    const again = await refundsLib.payRefundRequest(request.id, "admin");
+    assert.equal(again.amount, 1500);
+    assert.equal((await row(o.orderId)).status, "refunded");
+  });
+
   // Leave sales as the later analytics checks expect.
   await q(sql`delete from orders where email like 'rf_@b.co' or id = 'BRY-OLDREFUND'`);
   await q(sql`delete from users where email like 'rf_@b.co'`);

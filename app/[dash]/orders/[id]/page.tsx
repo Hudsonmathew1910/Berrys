@@ -135,7 +135,15 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
               <ul className="refund-history">
                 {paidRefunds.map((r) => (
                   <li key={r.id}>
-                    <b>{money(r.amount)}</b> · {fmt(r.createdAt)}
+                    <b>{money(r.amount)}</b> · {fmt(r.createdAt)}{" "}
+                    <span className={"status-pill refund-state refund-state-" + r.gatewayStatus}>
+                      {r.gatewayStatus === "processed"
+                        ? `Refunded${r.processedAt ? " · " + fmt(r.processedAt) : ""}`
+                        : r.gatewayStatus === "failed"
+                          ? "Failed — not refunded"
+                          : "Initiated — on its way"}
+                    </span>
+                    {r.failureReason && <small className="block form-error">{r.failureReason}</small>}
                     <small className="block muted">
                       {r.razorpayRefundId} · {r.actor}
                       {r.items.length > 0 && (

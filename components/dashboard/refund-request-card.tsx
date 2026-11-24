@@ -34,7 +34,13 @@ export function RefundRequestCard({
   /** Adds a tick box (while open) for the page's bulk bar with this id. */
   bulkForm?: string;
   /** The refund sent for this request, once paid. */
-  payout?: { amount: number; refundId: string; at: Date };
+  payout?: {
+    amount: number;
+    refundId: string;
+    at: Date;
+    state: "initiated" | "processed" | "failed";
+    processedAt: Date | null;
+  };
 }) {
   const open = r.status === "requested" || r.status === "verified";
   return (
@@ -123,8 +129,10 @@ export function RefundRequestCard({
       )}
       {r.status === "approved" &&
         (payout ? (
-          <p className="refund-paid">
-            Paid back {money(payout.amount)} · {fmt(payout.at)}
+          <p className={"refund-paid" + (payout.state === "initiated" ? " initiated" : "")}>
+            {payout.state === "processed"
+              ? `Refunded ${money(payout.amount)} · reached the customer ${fmt(payout.processedAt ?? payout.at)}`
+              : `Refund of ${money(payout.amount)} initiated ${fmt(payout.at)} — on its way (usually 5–7 working days)`}
             {payout.refundId && <> · {payout.refundId}</>}
           </p>
         ) : (

@@ -1,5 +1,5 @@
 import "server-only";
-import { and, desc, eq, ilike, inArray, or, sql, type SQL } from "drizzle-orm";
+import { and, desc, eq, ilike, inArray, ne, or, sql, type SQL } from "drizzle-orm";
 import { getDb, schema } from "@/db";
 import type { OrderStatus, RefundLine } from "@/db/schema";
 import { HttpError } from "@/lib/http-error";
@@ -124,7 +124,7 @@ export async function refundAmount(
     const [{ taken }] = await tx
       .select({ taken: sql<number>`coalesce(sum(${orderRefunds.amount}), 0)::int` })
       .from(orderRefunds)
-      .where(eq(orderRefunds.orderId, orderId));
+      .where(and(eq(orderRefunds.orderId, orderId), ne(orderRefunds.status, "failed")));
     const left = order.total - taken;
     if (left <= 0) throw new HttpError(409, "This order is already being refunded or has been refunded.");
     const amount = opts.amount ?? left;
@@ -140,7 +140,7 @@ export async function refundAmount(
 
   // 2) Send the money (outside the transaction: never hold a lock while waiting on Razorpay).
   const isMock = order.razorpayPaymentId!.startsWith(DEMO_PAYMENT_PREFIX);
-  let refund: { id: string };
+  let refund: { id: string; status?: string };
   try {
     refund = isMock
       ? { id: `rfnd_mock_${crypto.randomUUID().slice(0, 8)}` }
@@ -158,7 +158,15 @@ export async function refundAmount(
   await db.transaction(async (tx) => {
     await tx
       .update(orderRefunds)
-      .set({ status: "done", razorpayRefundId: refund.id })
+      .set({
+        status: "done",
+        razorpayRefundId: refund.id,
+        // Demo payments, or Razorpay already done (instant refunds): processed now. Otherwise the
+        // money is on its way and Razorpay's "refund.processed" webhook completes it.
+        ...(isMock || refund.status === "processed"
+          ? { gatewayStatus: "processed" as const, processedAt: new Date() }
+          : { gatewayStatus: "initiated" as const }),
+      })
       .where(eq(orderRefunds.id, claim.id));
     const [o] = await tx.select().from(orders).where(eq(orders.id, orderId)).for("update");
     const done = await tx
@@ -221,13 +229,13 @@ export function refundOrder(orderId: string, actor: string, reason: string) {
   return refundAmount(orderId, actor, reason);
 }
 
-/** Refunds paid on these orders (newest first). */
+/** Refunds sent on these orders, including any that failed (newest first). */
 export async function refundsFor(orderIds: string[]) {
   if (!orderIds.length) return [];
   return getDb()
     .select()
     .from(orderRefunds)
-    .where(and(inArray(orderRefunds.orderId, orderIds), eq(orderRefunds.status, "done")))
+    .where(and(inArray(orderRefunds.orderId, orderIds), inArray(orderRefunds.status, ["done", "failed"])))
     .orderBy(desc(orderRefunds.createdAt));
 }
 
@@ -284,4 +292,70 @@ export async function newOrderCount() {
     .from(schema.orders)
     .where(eq(schema.orders.status, "paid"));
   return n;
+}
+
+/**
+ * Razorpay's word on a refund (webhook): "processed" = the money reached the customer;
+ * "failed" = it bounced, so it no longer counts as refunded — the order is flagged "Refund needed"
+ * and a customer request it paid can be sent again. Safe to receive more than once.
+ * Returns the refund row when something changed (to email the customer), else null.
+ */
+export async function applyRefundEvent(razorpayRefundId: string, event: "processed" | "failed", reason = "") {
+  return getDb().transaction(async (tx) => {
+    const [r] = await tx
+      .select()
+      .from(orderRefunds)
+      .where(eq(orderRefunds.razorpayRefundId, razorpayRefundId))
+      .for("update");
+    if (!r || r.status !== "done") return null;
+    if (event === "processed") {
+      if (r.gatewayStatus === "processed") return null;
+      const [row] = await tx
+        .update(orderRefunds)
+        .set({ gatewayStatus: "processed", processedAt: new Date() })
+        .where(eq(orderRefunds.id, r.id))
+        .returning();
+      await addOrderEvent(
+        tx,
+        r.orderId,
+        "refund_processed",
+        "razorpay",
+        `₹${r.amount.toLocaleString("en-IN")} · ${razorpayRefundId}`,
+      );
+      return row;
+    }
+    const why = reason || "Razorpay couldn’t complete the refund.";
+    const [row] = await tx
+      .update(orderRefunds)
+      .set({ status: "failed", gatewayStatus: "failed", failureReason: why })
+      .where(eq(orderRefunds.id, r.id))
+      .returning();
+    const [o] = await tx.select().from(orders).where(eq(orders.id, r.orderId)).for("update");
+    const done = await tx
+      .select({ amount: orderRefunds.amount })
+      .from(orderRefunds)
+      .where(and(eq(orderRefunds.orderId, r.orderId), eq(orderRefunds.status, "done")));
+    const refundedAmount = done.reduce((a, x) => a + x.amount, 0);
+    await tx
+      .update(orders)
+      .set(
+        o.status === "refunded"
+          ? { refundedAmount, status: "needs_refund", refundId: null, refundedAt: null }
+          : { refundedAmount },
+      )
+      .where(eq(orders.id, r.orderId));
+    if (r.requestId)
+      await tx
+        .update(schema.refundRequests)
+        .set({ payoutError: `The refund failed at Razorpay (${why}). Send it again.` })
+        .where(eq(schema.refundRequests.id, r.requestId));
+    await addOrderEvent(
+      tx,
+      r.orderId,
+      "refund_failed",
+      "razorpay",
+      `₹${r.amount.toLocaleString("en-IN")} · ${razorpayRefundId} — ${why}`,
+    );
+    return row;
+  });
 }

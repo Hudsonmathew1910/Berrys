@@ -54,7 +54,7 @@ export async function refundPayment(
   paymentId: string,
   notes?: Record<string, string>,
   amountRupees?: number,
-): Promise<{ id: string }> {
+): Promise<{ id: string; status?: string }> {
   const auth = Buffer.from(`${serverEnv.razorpayKeyId()}:${serverEnv.razorpayKeySecret()}`).toString(
     "base64",
   );

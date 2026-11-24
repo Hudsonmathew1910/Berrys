@@ -1,5 +1,5 @@
 import "server-only";
-import { and, count, desc, eq, inArray, type SQL } from "drizzle-orm";
+import { and, count, desc, eq, inArray, ne, type SQL } from "drizzle-orm";
 import { getDb, schema } from "@/db";
 import type { RefundLine, RefundRequestStatus } from "@/db/schema";
 import { HttpError } from "@/lib/http-error";
@@ -224,7 +224,7 @@ export async function payRefundRequest(id: string, actor: string) {
   const [paid] = await db
     .select({ id: schema.orderRefunds.id })
     .from(schema.orderRefunds)
-    .where(eq(schema.orderRefunds.requestId, id))
+    .where(and(eq(schema.orderRefunds.requestId, id), ne(schema.orderRefunds.status, "failed")))
     .limit(1);
   if (paid) throw new HttpError(409, "This refund has already been sent.");
   const [order] = await db.select().from(orders).where(eq(orders.id, req.orderId)).limit(1);
@@ -253,15 +253,39 @@ export async function payRefundRequest(id: string, actor: string) {
 
 /** Refunds already sent for these requests (request id → refund). */
 export async function payoutsFor(requestIds: string[]) {
-  if (!requestIds.length) return new Map<string, { amount: number; refundId: string; at: Date }>();
+  type Payout = {
+    amount: number;
+    refundId: string;
+    at: Date;
+    state: "initiated" | "processed" | "failed";
+    processedAt: Date | null;
+  };
+  if (!requestIds.length) return new Map<string, Payout>();
   const rows = await getDb()
     .select()
     .from(schema.orderRefunds)
     .where(and(inArray(schema.orderRefunds.requestId, requestIds), eq(schema.orderRefunds.status, "done")));
-  return new Map(
+  return new Map<string, Payout>(
     rows.map((r) => [
       r.requestId!,
-      { amount: r.amount, refundId: r.razorpayRefundId ?? "", at: r.createdAt },
+      {
+        amount: r.amount,
+        refundId: r.razorpayRefundId ?? "",
+        at: r.createdAt,
+        state: r.gatewayStatus,
+        processedAt: r.processedAt,
+      },
     ]),
   );
+}
+
+/** A customer's refunds on one order, for the progress timeline on their order page. */
+export async function refundProgress(orderId: string) {
+  return getDb()
+    .select()
+    .from(schema.orderRefunds)
+    .where(
+      and(eq(schema.orderRefunds.orderId, orderId), inArray(schema.orderRefunds.status, ["done", "failed"])),
+    )
+    .orderBy(desc(schema.orderRefunds.createdAt));
 }

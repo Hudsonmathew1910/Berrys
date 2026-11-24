@@ -2330,3 +2330,80 @@ html {
 .refunded-line b {
   color: #3f7d4d;
 }
+
+/* ---- Customer order page: refund progress ---- */
+.refund-track {
+  display: grid;
+  gap: 10px;
+  padding: 14px 16px;
+  margin-bottom: 12px;
+  border: 1px solid #e5e4dd;
+  background: #fffefa;
+}
+.refund-track.done {
+  border-color: #cfe3d4;
+}
+.refund-track.failed {
+  border-color: #e7b3a9;
+  background: #fdf1ee;
+}
+.refund-track-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.refund-track-head small {
+  color: var(--muted);
+}
+.refund-steps {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: step;
+}
+.refund-steps li {
+  position: relative;
+  display: grid;
+  gap: 2px;
+  padding-top: 14px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.refund-steps li::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 5px;
+  border-radius: 3px;
+  background: #e4e3dc;
+}
+.refund-steps li.on {
+  color: var(--navy);
+  font-weight: 600;
+}
+.refund-steps li.on::before {
+  background: #3f7d4d;
+}
+.refund-steps li.current::before {
+  background: linear-gradient(90deg, #3f7d4d 40%, #e4e3dc 40%);
+}
+.refund-steps li.bad {
+  color: #9b2c1f;
+}
+.refund-steps li.bad::before {
+  background: #c0533f;
+}
+.refund-steps small {
+  font-weight: 400;
+  color: var(--muted);
+}
+.refund-track p {
+  margin: 0;
+  font-size: 12px;
+}

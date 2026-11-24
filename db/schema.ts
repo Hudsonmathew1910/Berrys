@@ -579,8 +579,19 @@ export const orderRefunds = pgTable(
       .references(() => orders.id, { onDelete: "cascade" }),
     /** ₹ sent back. */
     amount: integer("amount").notNull(),
-    status: text("status").$type<"pending" | "done">().notNull().default("pending"),
+    /** pending = amount reserved, Razorpay not asked yet · done = Razorpay accepted it · failed = it bounced. */
+    status: text("status").$type<"pending" | "done" | "failed">().notNull().default("pending"),
     razorpayRefundId: text("razorpay_refund_id"),
+    /**
+     * Where the money is, as the customer sees it: initiated (sent to Razorpay, on its way —
+     * usually 5–7 working days) · processed (reached the customer) · failed (Razorpay couldn't).
+     */
+    gatewayStatus: text("gateway_status")
+      .$type<"initiated" | "processed" | "failed">()
+      .notNull()
+      .default("initiated"),
+    processedAt: timestamp("processed_at", { withTimezone: true }),
+    failureReason: text("failure_reason").notNull().default(""),
     /** The customer request this pays, if any. */
     requestId: uuid("request_id").references(() => refundRequests.id, { onDelete: "set null" }),
     /** Pieces refunded (empty = an amount, or the whole order). */

@@ -8,6 +8,7 @@ import { after } from "next/server";
 import {
   sendDashboardResetCode,
   sendRefundDecision,
+  sendRefundProgress,
   sendRefundVerified,
   sendStatusUpdate,
   sendTeamRequest,
@@ -334,7 +335,8 @@ export async function refundAction(_: ActionResult, f: FormData) {
         id,
         `${refundId}${amount ? ` — ₹${amount}` : ""} — ${reason}`,
       );
-      if (full) after(() => sendStatusUpdate(id, "refunded"));
+      // "On its way" (or "processed" right away for demo payments); Razorpay's webhook sends the rest.
+      after(() => sendRefundProgress(refundId));
       return done(
         full
           ? `Refunded in full (${refundId}).`
@@ -430,6 +432,8 @@ export async function decideRefundRequestAction(_: ActionResult, f: FormData) {
 async function sendApprovedRefund(staff: Staff, requestId: string) {
   try {
     const { refundId, amount } = await payRefundRequest(requestId, actorName(staff));
+    // The approval email already says it's on its way; this one only if it's already processed.
+    after(() => sendRefundProgress(refundId, { skipInitiated: true }));
     await logActivity(actorName(staff), "Sent approved refund", requestId, `₹${amount} · ${refundId}`);
     return { ok: true as const, refundId, amount };
   } catch (e) {

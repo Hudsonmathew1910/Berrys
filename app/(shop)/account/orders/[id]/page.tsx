@@ -7,7 +7,13 @@ import { money } from "@/lib/catalog";
 import { formatIndianMobile } from "@/lib/phone";
 import { orderForUser } from "@/lib/store-data";
 import { statusLabels } from "@/lib/order-status";
-import { refundBlocker, refundReasons, refundStatusLabels, requestsForOrder } from "@/lib/refunds";
+import {
+  refundBlocker,
+  refundProgress,
+  refundReasons,
+  refundStatusLabels,
+  requestsForOrder,
+} from "@/lib/refunds";
 import { getSettings } from "@/lib/settings";
 import { RefundRequestForm } from "@/components/shop/refund-request-form";
 
@@ -21,7 +27,11 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
   const viewer = (await getViewer())!;
   const order = await orderForUser(viewer.userId, decodeURIComponent((await params).id));
   if (!order) notFound();
-  const [refunds, settings] = await Promise.all([requestsForOrder(order.id), getSettings()]);
+  const [refunds, settings, sent] = await Promise.all([
+    requestsForOrder(order.id),
+    getSettings(),
+    refundProgress(order.id),
+  ]);
   const blocker = refundBlocker(order, settings, refunds);
 
   const closed = ["cancelled", "expired", "needs_refund"].includes(order.status);
@@ -126,7 +136,7 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
           </div>
           {order.refundedAmount > 0 && (
             <div className="subtotal refunded-line">
-              <span>Refunded to you</span>
+              <span>Refunded</span>
               <b>−{money(order.refundedAmount)}</b>
             </div>
           )}
@@ -154,9 +164,55 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
         </section>
       </div>
 
-      {(refunds.length > 0 || !blocker) && (
+      {(refunds.length > 0 || sent.length > 0 || !blocker) && (
         <section className="account-card-box refund-box" id="refund">
           <h2>Refunds</h2>
+          {sent.map((r) => {
+            const failed = r.gatewayStatus === "failed";
+            const done = r.gatewayStatus === "processed";
+            const steps = [
+              { label: "Refund initiated", on: true, at: r.createdAt },
+              { label: "Processing", on: done || !failed, at: null },
+              failed
+                ? { label: "Couldn’t complete", on: true, at: null, bad: true }
+                : { label: "Refunded", on: done, at: r.processedAt },
+            ];
+            return (
+              <div key={r.id} className={"refund-track" + (failed ? " failed" : done ? " done" : "")}>
+                <div className="refund-track-head">
+                  <b>{money(r.amount)}</b>
+                  <small>
+                    {r.items.length
+                      ? r.items.map((l) => `${l.name} (${l.size}) × ${l.quantity}`).join(", ")
+                      : "Refund"}
+                  </small>
+                </div>
+                <ol className="refund-steps">
+                  {steps.map((s, i) => (
+                    <li
+                      key={i}
+                      className={
+                        (s.on ? "on" : "") +
+                        ("bad" in s && s.bad ? " bad" : "") +
+                        (i === 1 && !done && !failed ? " current" : "")
+                      }
+                    >
+                      <span>{s.label}</span>
+                      {s.at && <small>{fmt(s.at)}</small>}
+                    </li>
+                  ))}
+                </ol>
+                <p className="muted">
+                  {done
+                    ? "The money has been sent to your original payment method."
+                    : failed
+                      ? "This refund didn’t go through. Our team has been alerted and will send it again or contact you."
+                      : "On its way to your original payment method — usually 5–7 working days. We’ll email you when it arrives."}
+                  {r.razorpayRefundId && <> Reference: {r.razorpayRefundId}</>}
+                </p>
+              </div>
+            );
+          })}
           {refunds.map((r) => (
             <div key={r.id} className={`refund-status refund-${r.status}`}>
               <div className="refund-status-head">

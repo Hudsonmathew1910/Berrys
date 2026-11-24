@@ -20,6 +20,9 @@ const emailKindLabels: Record<string, string> = {
   "refund-received": "Refund receipts (customer)",
   "refund-verified": "Refunds to approve",
   "refund-decision": "Refund decisions",
+  "refund-initiated": "Refunds sent (customer)",
+  "refund-processed": "Refunds received (customer)",
+  "refund-failed": "Refunds failed (customer)",
   "team-request": "Staff requests to approve",
 };
 

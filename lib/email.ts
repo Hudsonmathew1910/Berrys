@@ -508,6 +508,58 @@ export async function sendRefundDecision(order: Order, r: RefundRequestRow) {
   });
 }
 
+/**
+ * Where a refund's money is: "initiated" (sent to Razorpay, usually 5–7 working days),
+ * "processed" (it reached the customer) or "failed" (it bounced; we'll sort it out).
+ * Uses Settings → Emails → order status emails.
+ */
+export async function sendRefundProgress(razorpayRefundId: string, opts: { skipInitiated?: boolean } = {}) {
+  const s = await getSettings();
+  if (!s.emailOrderStatus || !emailConfigured()) return;
+  const [r] = await getDb()
+    .select()
+    .from(schema.orderRefunds)
+    .where(eq(schema.orderRefunds.razorpayRefundId, razorpayRefundId))
+    .limit(1);
+  if (!r || r.status === "pending") return;
+  // A just-approved request's email already says the money is on its way.
+  if (opts.skipInitiated && r.gatewayStatus === "initiated") return;
+  const [order] = await getDb().select().from(schema.orders).where(eq(schema.orders.id, r.orderId)).limit(1);
+  if (!order) return;
+  const site = serverEnv.siteUrl();
+  const state = r.gatewayStatus;
+  const copy = {
+    initiated: {
+      title: "Your refund is on its way",
+      text: `we’ve sent <b>${money(r.amount)}</b> for order <b>${order.id}</b> back to your original payment method. It usually reaches you in 5–7 working days — we’ll email you again when it arrives.`,
+    },
+    processed: {
+      title: "Your refund has been processed",
+      text: `<b>${money(r.amount)}</b> for order <b>${order.id}</b> has been refunded to your original payment method. Depending on your bank it can take a little while to show in your statement.`,
+    },
+    failed: {
+      title: "We couldn’t complete your refund yet",
+      text: `the refund of <b>${money(r.amount)}</b> for order <b>${order.id}</b> didn’t go through. Don’t worry — our team has been alerted and will send it again or contact you.`,
+    },
+  }[state];
+  const pieces = r.items.length
+    ? `<p style="color:#7d827e;font-size:13px">${r.items.map((l) => `${escape(l.name)} (${escape(l.size)}) × ${l.quantity}`).join(", ")}</p>`
+    : "";
+  const html = layout(
+    s,
+    `${demoNotice(order)}<h2 style="color:#193547;margin-top:0">${copy.title}</h2>
+     <p>Hi ${escape(order.customer)}, ${copy.text}</p>
+     ${pieces}
+     <p>Refund reference: <b>${escape(r.razorpayRefundId ?? "—")}</b></p>
+     ${button(`${site}/account/orders/${encodeURIComponent(order.id)}`, "View your order")}`,
+  );
+  await trySend(`refund-${state}`, order.id, {
+    to: order.email,
+    subject: `${demoTag(order)}${copy.title} · ${order.id}`,
+    html,
+  });
+}
+
 // ---------------------------------------------------------------- staff requests
 
 type ApprovalRow = typeof schema.approvalRequests.$inferSelect;
