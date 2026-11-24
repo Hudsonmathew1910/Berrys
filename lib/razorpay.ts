@@ -49,9 +49,11 @@ export function verifyWebhookSignature(rawBody: string, signature: string) {
 }
 
 /** Full refund of a captured payment — https://razorpay.com/docs/api/refunds/create-normal/ */
+/** Refund a payment: the whole of it, or mountRupees of it (a part refund). */
 export async function refundPayment(
   paymentId: string,
   notes?: Record<string, string>,
+  amountRupees?: number,
 ): Promise<{ id: string }> {
   const auth = Buffer.from(`${serverEnv.razorpayKeyId()}:${serverEnv.razorpayKeySecret()}`).toString(
     "base64",
@@ -59,7 +61,12 @@ export async function refundPayment(
   const res = await fetch(`https://api.razorpay.com/v1/payments/${encodeURIComponent(paymentId)}/refund`, {
     method: "POST",
     headers: { Authorization: `Basic ${auth}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ speed: "normal", notes }),
+    // Razorpay takes amounts in paise; no amount = refund what's left of the payment.
+    body: JSON.stringify({
+      speed: "normal",
+      notes,
+      ...(amountRupees ? { amount: Math.round(amountRupees * 100) } : {}),
+    }),
   });
   if (!res.ok) throw new Error(`Razorpay refund failed (${res.status}): ${await res.text()}`);
   return res.json();

@@ -148,8 +148,9 @@ export async function listPayments(f: { q?: string; page: number }) {
     db
       .select({
         total: sql<number>`count(*)::int`,
-        collected: sql<number>`coalesce(sum(${orders.total}) filter (where ${orders.status} <> 'refunded'),0)::int`,
-        refunded: sql<number>`coalesce(sum(${orders.total}) filter (where ${orders.status} = 'refunded'),0)::int`,
+        // Part refunds count too: collected = paid minus everything sent back.
+        collected: sql<number>`coalesce(sum(${orders.total} - ${orders.refundedAmount}),0)::int`,
+        refunded: sql<number>`coalesce(sum(${orders.refundedAmount}),0)::int`,
       })
       .from(orders)
       .where(and(...where)),

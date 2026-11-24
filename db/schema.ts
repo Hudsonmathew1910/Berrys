@@ -178,6 +178,8 @@ export const orders = pgTable(
     trackingUrl: text("tracking_url").notNull().default(""),
     refundId: text("refund_id"),
     refundedAt: timestamp("refunded_at", { withTimezone: true }),
+    /** Money sent back so far (₹), full or part refunds. Equals total once fully refunded. */
+    refundedAmount: integer("refunded_amount").notNull().default(0),
     /** Internal note for staff. */
     staffNote: text("staff_note").notNull().default(""),
     /**
@@ -527,6 +529,8 @@ export const refundRequests = pgTable(
     decidedBy: text("decided_by"),
     decidedAt: timestamp("decided_at", { withTimezone: true }),
     decisionNote: text("decision_note").notNull().default(""),
+    /** Approved but the money couldn't be sent yet (e.g. Razorpay not connected): why. */
+    payoutError: text("payout_error").notNull().default(""),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index("refund_requests_order_idx").on(t.orderId), index("refund_requests_status_idx").on(t.status)],
@@ -559,4 +563,31 @@ export const emailSends = pgTable(
     sentAt: timestamp("sent_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index("email_sends_sent_idx").on(t.sentAt)],
+).enableRLS();
+
+/**
+ * Every refund paid on an order, whole or part. A row is "pending" from the moment the amount is
+ * reserved until Razorpay confirms (then "done"); pending amounts count as refunded, so the same
+ * money can never be sent back twice.
+ */
+export const orderRefunds = pgTable(
+  "order_refunds",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orderId: text("order_id")
+      .notNull()
+      .references(() => orders.id, { onDelete: "cascade" }),
+    /** ₹ sent back. */
+    amount: integer("amount").notNull(),
+    status: text("status").$type<"pending" | "done">().notNull().default("pending"),
+    razorpayRefundId: text("razorpay_refund_id"),
+    /** The customer request this pays, if any. */
+    requestId: uuid("request_id").references(() => refundRequests.id, { onDelete: "set null" }),
+    /** Pieces refunded (empty = an amount, or the whole order). */
+    items: jsonb("items").$type<RefundLine[]>().notNull().default([]),
+    reason: text("reason").notNull().default(""),
+    actor: text("actor").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("order_refunds_order_idx").on(t.orderId)],
 ).enableRLS();

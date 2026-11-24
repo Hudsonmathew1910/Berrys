@@ -1,12 +1,12 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
-import { orderHistory } from "@/lib/admin/orders";
+import { orderHistory, refundsFor } from "@/lib/admin/orders";
 import { money } from "@/lib/catalog";
 import { nextStatuses, statusLabels } from "@/lib/order-status";
 import { orderWithItems } from "@/lib/store-data";
 import { adminHref, can, requirePage } from "@/lib/staff";
-import { refundStatusLabels, requestsForOrder } from "@/lib/refunds";
+import { payoutsFor, refundStatusLabels, requestsForOrder } from "@/lib/refunds";
 import { ActionForm } from "@/components/dashboard/action-form";
 import { RefundRequestCard } from "@/components/dashboard/refund-request-card";
 import { deleteOrderAction, orderStatusAction, refundAction, shippingAction } from "../../actions";
@@ -26,16 +26,21 @@ function deleteHint(status: string, demo: boolean) {
 export default async function OrderDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const staff = await requirePage("orders");
   const id = decodeURIComponent((await params).id);
-  const [order, history, refunds] = await Promise.all([
+  const [order, history, refunds, paidRefunds] = await Promise.all([
     orderWithItems(id),
     orderHistory(id),
     requestsForOrder(id),
+    refundsFor([id]),
   ]);
   if (!order) notFound();
+  const payouts = await payoutsFor(refunds.map((r) => r.id));
+  /** Money not refunded yet. */
+  const left = order.total - order.refundedAmount;
   const next = nextStatuses[order.status] ?? [];
   const refundable =
     ["paid", "packed", "shipped", "delivered", "needs_refund"].includes(order.status) &&
-    !!order.razorpayPaymentId;
+    !!order.razorpayPaymentId &&
+    left > 0;
   const canRefund = can(staff, "refunds");
   /** Deletes straight away (otherwise sends a request). */
   const isAdmin = can(staff, "delete_records");
@@ -71,6 +76,7 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
                 r={r}
                 isAdmin={can(staff, "requests")}
                 canVerify={can(staff, "orders")}
+                payout={payouts.get(r.id)}
               />
             ))}
           </section>
@@ -117,13 +123,31 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
             {order.razorpayPaymentId ?? "Not paid"}
             <br />
             Paid {fmt(order.paidAt)}
-            {order.refundId && (
-              <>
-                <br />
-                Refund {order.refundId} · {fmt(order.refundedAt)}
-              </>
-            )}
           </p>
+          {paidRefunds.length > 0 && (
+            <>
+              <h2>
+                Refunds{" "}
+                <small className="muted">
+                  · {money(order.refundedAmount)} of {money(order.total)}
+                </small>
+              </h2>
+              <ul className="refund-history">
+                {paidRefunds.map((r) => (
+                  <li key={r.id}>
+                    <b>{money(r.amount)}</b> · {fmt(r.createdAt)}
+                    <small className="block muted">
+                      {r.razorpayRefundId} · {r.actor}
+                      {r.items.length > 0 && (
+                        <> · {r.items.map((l) => `${l.name} (${l.size}) × ${l.quantity}`).join(", ")}</>
+                      )}
+                      {r.reason && <> · {r.reason}</>}
+                    </small>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
         </section>
 
         <section className="dash-panel">
@@ -186,22 +210,26 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
             <h2>{canRefund ? "Refund" : "Request a refund"}</h2>
             <p className="muted">
               {canRefund
-                ? `Refunds the full ${money(order.total)} to the customer through Razorpay.`
-                : "An admin will review and approve the refund."}
+                ? `Sends money back to the customer through Razorpay. ${money(left)} can still be refunded${order.refundedAmount ? ` (${money(order.refundedAmount)} already refunded)` : ""}.`
+                : "An admin will review and approve a full refund."}
             </p>
             <ActionForm
               action={refundAction}
-              confirm={
-                canRefund ? `Refund ${money(order.total)} for ${order.id}? This cannot be undone.` : undefined
-              }
+              confirm={canRefund ? `Send this refund for ${order.id}? This cannot be undone.` : undefined}
             >
               <input type="hidden" name="orderId" value={order.id} />
+              {canRefund && (
+                <label>
+                  Amount (₹) — leave empty to refund all {money(left)}
+                  <input name="amount" type="number" min={1} max={left} step={1} placeholder={String(left)} />
+                </label>
+              )}
               <label>
                 Reason
                 <input name="reason" required maxLength={500} />
               </label>
               <button className={canRefund ? "primary danger" : "outline"}>
-                {canRefund ? "Refund order" : "Send refund request"}
+                {canRefund ? "Send refund" : "Send refund request"}
               </button>
             </ActionForm>
           </section>

@@ -3,7 +3,11 @@ import { money } from "@/lib/catalog";
 import { refundStatusLabels, type RefundRequest } from "@/lib/refunds";
 import { ActionForm } from "@/components/dashboard/action-form";
 import { BulkCheck } from "@/components/dashboard/bulk-bar";
-import { decideRefundRequestAction, verifyRefundRequestAction } from "@/app/[dash]/actions";
+import {
+  decideRefundRequestAction,
+  payRefundRequestAction,
+  verifyRefundRequestAction,
+} from "@/app/[dash]/actions";
 
 const fmt = (d: Date | null) =>
   d ? d.toLocaleString("en-IN", { timeZone: "Asia/Kolkata", dateStyle: "medium", timeStyle: "short" }) : "";
@@ -19,6 +23,7 @@ export function RefundRequestCard({
   orderHref,
   customer,
   bulkForm,
+  payout,
 }: {
   r: RefundRequest;
   isAdmin: boolean;
@@ -28,6 +33,8 @@ export function RefundRequestCard({
   customer?: string;
   /** Adds a tick box (while open) for the page's bulk bar with this id. */
   bulkForm?: string;
+  /** The refund sent for this request, once paid. */
+  payout?: { amount: number; refundId: string; at: Date };
 }) {
   const open = r.status === "requested" || r.status === "verified";
   return (
@@ -80,7 +87,8 @@ export function RefundRequestCard({
         <ActionForm action={decideRefundRequestAction}>
           <input type="hidden" name="id" value={r.id} />
           <label>
-            Note to the customer <small className="muted">(needed when rejecting)</small>
+            Note to the customer{" "}
+            <small className="muted">(needed when rejecting; approving sends the money)</small>
             <input name="note" maxLength={500} />
           </label>
           <div className="button-row">
@@ -113,12 +121,30 @@ export function RefundRequestCard({
       {r.status === "verified" && !isAdmin && (
         <p className="muted">Waiting for an admin to approve or reject.</p>
       )}
-      {r.status === "approved" && (
-        <p className="refund-next">
-          Next: send {money(r.amount)} back to the customer. Online refunds will work here once Razorpay is
-          connected.
-        </p>
-      )}
+      {r.status === "approved" &&
+        (payout ? (
+          <p className="refund-paid">
+            Paid back {money(payout.amount)} · {fmt(payout.at)}
+            {payout.refundId && <> · {payout.refundId}</>}
+          </p>
+        ) : (
+          <div className="refund-next">
+            <p>
+              <b>Approved, but {money(r.amount)} hasn’t been sent yet.</b>
+              {r.payoutError && <> {r.payoutError}</>}
+            </p>
+            {isAdmin && (
+              <ActionForm
+                action={payRefundRequestAction}
+                confirm={`Send ${money(r.amount)} back to the customer now?`}
+                inline
+              >
+                <input type="hidden" name="id" value={r.id} />
+                <button className="primary">Send refund now</button>
+              </ActionForm>
+            )}
+          </div>
+        ))}
     </div>
   );
 }

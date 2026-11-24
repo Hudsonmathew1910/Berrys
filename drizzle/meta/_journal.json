@@ -127,6 +127,13 @@
       "when": 1795499935588,
       "tag": "0017_customer_bags",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1795515848821,
+      "tag": "0018_partial_refunds",
+      "breakpoints": true
     }
   ]
 }

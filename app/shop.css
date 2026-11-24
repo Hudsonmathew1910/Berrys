@@ -2326,3 +2326,7 @@ html {
   width: max-content;
   max-width: 100%;
 }
+
+.refunded-line b {
+  color: #3f7d4d;
+}

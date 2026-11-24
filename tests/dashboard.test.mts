@@ -15,6 +15,10 @@ await migrate(async (file) => {
         ('berry-3','Odd one','Legacy',500,500,'','/images/product-2.webp','','#000000');
       insert into inventory select p, s, 5 from unnest(array['berry-1','berry-2','berry-3']) p, unnest(array['S','M','L','XL']) s;`);
   }
+  if (file.startsWith("0018")) {
+    await exec(`insert into orders (id, customer, email, phone, address, pincode, subtotal, total, status, expires_at, razorpay_payment_id, refund_id, refunded_at)
+      values ('BRY-OLDREFUND', 'Old', 'old@b.co', '9876543210', '1 Road', '560001', 500, 500, 'refunded', now(), 'pay_old', 'rfnd_old', now())`);
+  }
   // An offer made before sale prices moved into offers: it came off the selling price.
   if (file.startsWith("0015")) {
     await exec(`insert into offers (name, type, value, scope, targets, starts_at, active)
@@ -466,6 +470,151 @@ console.log("Prices, offers and shipping at checkout");
     await q(sql`delete from orders where email in ('p1@b.co','p2@b.co','p3@b.co')`);
   });
 }
+console.log("Refunds: part, full, requests");
+{
+  const refundsLib = await import("../lib/refunds.ts");
+  const { updateSettings, getSettings } = await import("../lib/settings.ts");
+  const stockOf = async (size: string) =>
+    (await q(sql`select quantity from inventory where product_id='berry-3' and size=${size}`))[0]
+      .quantity as number;
+  const paidOrder = async (email: string, payment = "pay_mock_rf_" + email.slice(0, 6)) => {
+    const o = await orders.createPendingOrder(
+      checkoutSchema.parse({
+        items: [
+          { productId: "berry-3", size: "S", quantity: 1 },
+          { productId: "berry-3", size: "M", quantity: 2 },
+        ],
+        customer: "Refund Test",
+        email,
+        phone: "9876543210",
+        address: "12 Lake Road, Bengaluru",
+        pincode: "560038",
+      }),
+      null,
+      { mode: "demo", ready: true },
+    );
+    await orders.markOrderPaid(o.razorpay.orderId, payment);
+    return o;
+  };
+  const row = async (id: string) =>
+    (await q(sql`select status, refunded_amount, refund_id from orders where id=${id}`))[0];
+  const items = async (id: string) =>
+    q(
+      sql`select id, product_id, size, quantity, price, name from order_items where order_id=${id} order by size`,
+    );
+
+  // Plenty of stock for these orders.
+  await q(sql`update inventory set quantity = 50 where product_id = 'berry-3'`);
+  await test("migration: an old full refund is recorded in order_refunds", async () => {
+    const [o] = await q(sql`select refunded_amount from orders where id='BRY-OLDREFUND'`);
+    assert.equal(o.refunded_amount, 500);
+    const [r] = await q(
+      sql`select amount, status, razorpay_refund_id from order_refunds where order_id='BRY-OLDREFUND'`,
+    );
+    assert.deepEqual({ ...r }, { amount: 500, status: "done", razorpay_refund_id: "rfnd_old" });
+  });
+
+  await test("part refund: only that amount, order stays paid, only those pieces back in stock", async () => {
+    await updateSettings({ shippingFee: 0, freeShippingAbove: 0 }, "tester");
+    const s0 = await stockOf("S");
+    const m0 = await stockOf("M");
+    const o = await paidOrder("rf1@b.co");
+    assert.equal(o.total, 1500);
+    const [lineM] = (await items(o.orderId)).filter((i) => i.size === "M");
+    await adminOrders.refundAmount(o.orderId, "tester", "one torn", {
+      amount: 500,
+      items: [
+        { orderItemId: lineM.id, productId: "berry-3", name: lineM.name, size: "M", quantity: 1, price: 500 },
+      ],
+    });
+    let r = await row(o.orderId);
+    assert.equal(r.status, "paid");
+    assert.equal(r.refunded_amount, 500);
+    assert.equal(await stockOf("M"), m0 - 2 + 1); // one of the two M back
+    assert.equal(await stockOf("S"), s0 - 1);
+    // Too much is refused; the rest completes the order and puts back only what's left.
+    await assert.rejects(adminOrders.refundAmount(o.orderId, "tester", "x", { amount: 1001 }), (e: Err) =>
+      /Only ₹1,000/.test(e.message ?? ""),
+    );
+    await adminOrders.refundOrder(o.orderId, "tester", "rest");
+    r = await row(o.orderId);
+    assert.equal(r.status, "refunded");
+    assert.equal(r.refunded_amount, 1500);
+    assert.ok(String(r.refund_id).startsWith("rfnd_mock_"));
+    assert.equal(await stockOf("M"), m0); // no double stock
+    assert.equal(await stockOf("S"), s0);
+    await assert.rejects(
+      adminOrders.refundOrder(o.orderId, "tester", "again"),
+      (e: Err) => e.status === 400 || e.status === 409,
+    );
+  });
+
+  await test("five part refunds at once can't send more than was paid", async () => {
+    const o = await paidOrder("rf2@b.co");
+    const tries = await Promise.allSettled(
+      Array.from({ length: 5 }, () => adminOrders.refundAmount(o.orderId, "tester", "race", { amount: 900 })),
+    );
+    assert.equal(tries.filter((x) => x.status === "fulfilled").length, 1);
+    assert.equal((await row(o.orderId)).refunded_amount, 900);
+    assert.equal(
+      (await q(sql`select count(*)::int n from order_refunds where order_id=${o.orderId}`))[0].n,
+      1,
+    );
+  });
+
+  await test("approving a customer request pays exactly what they asked for, once", async () => {
+    const o = await paidOrder("rf3@b.co");
+    const [u] = await q(sql`insert into users (email, name) values ('rf3@b.co','Rf') returning id`);
+    await q(sql`update orders set user_id=${u.id} where id=${o.orderId}`);
+    const [lineS] = (await items(o.orderId)).filter((i) => i.size === "S");
+    const { request } = await refundsLib.createRefundRequest(
+      u.id,
+      o.orderId,
+      {
+        wholeOrder: false,
+        items: [{ orderItemId: lineS.id, quantity: 1 }],
+        reason: "Wrong size",
+        details: "",
+      },
+      await getSettings(),
+    );
+    assert.equal(request.amount, 500);
+    await refundsLib.decideRefundRequest(request.id, "approved", "admin", "");
+    const paid = await refundsLib.payRefundRequest(request.id, "admin");
+    assert.equal(paid.amount, 500);
+    assert.equal((await row(o.orderId)).refunded_amount, 500);
+    assert.equal((await row(o.orderId)).status, "paid");
+    assert.equal((await refundsLib.payoutsFor([request.id])).get(request.id)?.amount, 500);
+    await assert.rejects(refundsLib.payRefundRequest(request.id, "admin"), (e: Err) => e.status === 409);
+  });
+
+  await test("if the money can't be sent, the approval keeps the reason and nothing is half-done", async () => {
+    // A real (non-demo) payment id with no Razorpay keys in tests: Razorpay can't be reached.
+    const o = await paidOrder("rf4@b.co", "pay_REALTEST123");
+    const [u] = await q(sql`insert into users (email, name) values ('rf4@b.co','Rf4') returning id`);
+    await q(sql`update orders set user_id=${u.id} where id=${o.orderId}`);
+    const { request } = await refundsLib.createRefundRequest(
+      u.id,
+      o.orderId,
+      { wholeOrder: true, items: [], reason: "Damaged or defective", details: "" },
+      await getSettings(),
+    );
+    await refundsLib.decideRefundRequest(request.id, "approved", "admin", "");
+    await assert.rejects(refundsLib.payRefundRequest(request.id, "admin"));
+    const [req] = await q(sql`select status, payout_error from refund_requests where id=${request.id}`);
+    assert.equal(req.status, "approved");
+    assert.match(req.payout_error, /Razorpay/);
+    assert.equal((await row(o.orderId)).refunded_amount, 0);
+    assert.equal(
+      (await q(sql`select count(*)::int n from order_refunds where order_id=${o.orderId}`))[0].n,
+      0,
+    );
+  });
+  // Leave sales as the later analytics checks expect.
+  await q(sql`delete from orders where email like 'rf_@b.co' or id = 'BRY-OLDREFUND'`);
+  await q(sql`delete from users where email like 'rf_@b.co'`);
+}
+
 console.log("Team & requests");
 const team = await import("../lib/admin/team.ts");
 const [ownerRow] = await q(sql`select id from staff_members where email='owner@berrys.test'`);

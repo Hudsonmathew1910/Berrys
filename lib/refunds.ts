@@ -4,6 +4,7 @@ import { getDb, schema } from "@/db";
 import type { RefundLine, RefundRequestStatus } from "@/db/schema";
 import { HttpError } from "@/lib/http-error";
 import { addOrderEvent } from "@/lib/orders";
+import { refundAmount } from "@/lib/admin/orders";
 import type { Settings } from "@/lib/settings";
 
 const { orders, orderItems, refundRequests } = schema;
@@ -208,4 +209,59 @@ export async function refundRequestCounts() {
     .groupBy(refundRequests.status);
   const get = (s: RefundRequestStatus) => rows.find((r) => r.status === s)?.n ?? 0;
   return { requested: get("requested"), verified: get("verified") };
+}
+
+/**
+ * Sends the money for an approved customer request: the pieces they asked for (plus shipping when
+ * it's the whole order), never more than what's left to refund on the order. If it can't be sent
+ * (e.g. Razorpay isn't connected), the reason is kept on the request so the team can retry.
+ */
+export async function payRefundRequest(id: string, actor: string) {
+  const db = getDb();
+  const req = await getRefundRequest(id);
+  if (!req) throw new HttpError(404, "Refund request not found.");
+  if (req.status !== "approved") throw new HttpError(400, "Approve the request first.");
+  const [paid] = await db
+    .select({ id: schema.orderRefunds.id })
+    .from(schema.orderRefunds)
+    .where(eq(schema.orderRefunds.requestId, id))
+    .limit(1);
+  if (paid) throw new HttpError(409, "This refund has already been sent.");
+  const [order] = await db.select().from(orders).where(eq(orders.id, req.orderId)).limit(1);
+  if (!order) throw new HttpError(404, "Order not found.");
+  const left = order.total - order.refundedAmount;
+  try {
+    if (left <= 0) throw new HttpError(409, "This order has already been refunded in full.");
+    const amount = Math.min(req.amount, left);
+    const refundId = await refundAmount(req.orderId, actor, `Refund request — ${req.reason}`, {
+      amount,
+      // Whole order: everything left (and all remaining stock goes back if it hadn't shipped).
+      items: req.wholeOrder || amount === left ? [] : req.items,
+      requestId: id,
+    });
+    await db.update(refundRequests).set({ payoutError: "" }).where(eq(refundRequests.id, id));
+    return { refundId, amount };
+  } catch (e) {
+    const why =
+      e instanceof HttpError
+        ? e.message
+        : "Razorpay couldn’t send the money. Try again, or refund it from the Razorpay dashboard (details in the Error log).";
+    await db.update(refundRequests).set({ payoutError: why }).where(eq(refundRequests.id, id));
+    throw e instanceof HttpError ? e : new HttpError(502, why);
+  }
+}
+
+/** Refunds already sent for these requests (request id → refund). */
+export async function payoutsFor(requestIds: string[]) {
+  if (!requestIds.length) return new Map<string, { amount: number; refundId: string; at: Date }>();
+  const rows = await getDb()
+    .select()
+    .from(schema.orderRefunds)
+    .where(and(inArray(schema.orderRefunds.requestId, requestIds), eq(schema.orderRefunds.status, "done")));
+  return new Map(
+    rows.map((r) => [
+      r.requestId!,
+      { amount: r.amount, refundId: r.razorpayRefundId ?? "", at: r.createdAt },
+    ]),
+  );
 }

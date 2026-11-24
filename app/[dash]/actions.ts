@@ -12,7 +12,7 @@ import {
   sendStatusUpdate,
   sendTeamRequest,
 } from "@/lib/email";
-import { decideRefundRequest, requestsForOrder, verifyRefundRequest } from "@/lib/refunds";
+import { decideRefundRequest, payRefundRequest, requestsForOrder, verifyRefundRequest } from "@/lib/refunds";
 import { razorpayConfigured } from "@/lib/orders";
 import { getSettings, updateSettings, type Settings } from "@/lib/settings";
 import { clearErrors, logError } from "@/lib/error-log";
@@ -322,12 +322,30 @@ export async function refundAction(_: ActionResult, f: FormData) {
     const id = str(f, "orderId");
     const reason = str(f, "reason").slice(0, 500);
     if (!reason) return { error: "Please give a reason." };
+    // Empty = everything left on the order; a number = refund only that much (₹).
+    const amount = str(f, "amount") ? num(f, "amount") : undefined;
     if (can(staff, "refunds")) {
-      const refundId = await ord.refundOrder(id, actorName(staff), reason);
-      await logActivity(actorName(staff), "Refunded order", id, `${refundId} — ${reason}`);
-      after(() => sendStatusUpdate(id, "refunded"));
-      return done(`Refunded (${refundId}).`);
+      const refundId = await ord.refundAmount(id, actorName(staff), reason, { amount });
+      const [o] = await getDb().select().from(schema.orders).where(eq(schema.orders.id, id)).limit(1);
+      const full = o?.status === "refunded";
+      await logActivity(
+        actorName(staff),
+        full ? "Refunded order" : "Refunded part of order",
+        id,
+        `${refundId}${amount ? ` — ₹${amount}` : ""} — ${reason}`,
+      );
+      if (full) after(() => sendStatusUpdate(id, "refunded"));
+      return done(
+        full
+          ? `Refunded in full (${refundId}).`
+          : `Refunded ₹${amount?.toLocaleString("en-IN")} (${refundId}).`,
+      );
     }
+    if (amount)
+      return {
+        error:
+          "Only people who can issue refunds can refund part of an order. Send a full refund request instead.",
+      };
     await sendRequest(staff, "refund", id, reason);
     await logActivity(actorName(staff), "Requested refund", id, reason);
     return done("Refund request sent to an admin.");
@@ -398,11 +416,34 @@ export async function decideRefundRequestAction(_: ActionResult, f: FormData) {
     );
     const order = await orderRow(req.orderId);
     if (order) after(() => sendRefundDecision(order, req));
+    if (decision === "rejected") return done("Refund rejected — the customer has been emailed.");
+    const paid = await sendApprovedRefund(staff, req.id);
     return done(
-      decision === "approved"
-        ? "Refund approved — the customer has been emailed. Send the money back from this order once Razorpay is connected."
-        : "Refund rejected — the customer has been emailed.",
+      paid.ok
+        ? `Refund approved and ₹${paid.amount.toLocaleString("en-IN")} sent back to the customer (${paid.refundId}). They’ve been emailed.`
+        : `Refund approved and the customer emailed — but the money couldn’t be sent yet: ${paid.error} Use “Send refund now” to try again.`,
     );
+  });
+}
+
+/** Pays an approved request; never throws — tells the caller what happened. */
+async function sendApprovedRefund(staff: Staff, requestId: string) {
+  try {
+    const { refundId, amount } = await payRefundRequest(requestId, actorName(staff));
+    await logActivity(actorName(staff), "Sent approved refund", requestId, `₹${amount} · ${refundId}`);
+    return { ok: true as const, refundId, amount };
+  } catch (e) {
+    return { ok: false as const, error: e instanceof HttpError ? e.message : "Please try again." };
+  }
+}
+
+/** Approved but not paid (e.g. Razorpay wasn't connected): send the money now. */
+export async function payRefundRequestAction(_: ActionResult, f: FormData) {
+  return run("requests", async (staff) => {
+    const paid = await sendApprovedRefund(staff, str(f, "id"));
+    return paid.ok
+      ? done(`₹${paid.amount.toLocaleString("en-IN")} sent back to the customer (${paid.refundId}).`)
+      : { error: paid.error };
   });
 }
 
@@ -1338,6 +1379,10 @@ async function refundStep(staff: Staff, requestId: string, op: RefundOp, note: s
     );
     const order = await orderRow(req.orderId);
     if (order) after(() => sendRefundDecision(order, req));
+    if (decision === "approved") {
+      const paid = await sendApprovedRefund(staff, req.id);
+      if (!paid.ok) throw new HttpError(502, `approved, but not paid yet — ${paid.error}`);
+    }
     return;
   }
   const full = [op === "verify_reject" ? "Recommend: reject" : "Recommend: approve", note]
@@ -1350,7 +1395,7 @@ async function refundStep(staff: Staff, requestId: string, op: RefundOp, note: s
 }
 
 const refundOpDone: Record<RefundOp, string> = {
-  approve: "Approved {n} — each customer has been emailed.",
+  approve: "Approved and paid {n} — each customer has been emailed.",
   reject: "Rejected {n} — each customer has been emailed.",
   verify_approve: "Verified {n} (recommend approve) — an admin has been asked to decide.",
   verify_reject: "Verified {n} (recommend reject) — an admin has been asked to decide.",

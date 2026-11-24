@@ -124,6 +124,12 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
             <span>Total paid</span>
             <b>{money(order.total)}</b>
           </div>
+          {order.refundedAmount > 0 && (
+            <div className="subtotal refunded-line">
+              <span>Refunded to you</span>
+              <b>−{money(order.refundedAmount)}</b>
+            </div>
+          )}
         </section>
         <section className="account-card-box">
           <h2>Delivery address</h2>

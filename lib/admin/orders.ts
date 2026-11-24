@@ -1,20 +1,14 @@
 import "server-only";
-import { and, desc, eq, ilike, inArray, isNull, or, sql, type SQL } from "drizzle-orm";
+import { and, desc, eq, ilike, inArray, or, sql, type SQL } from "drizzle-orm";
 import { getDb, schema } from "@/db";
-import type { OrderStatus } from "@/db/schema";
+import type { OrderStatus, RefundLine } from "@/db/schema";
 import { HttpError } from "@/lib/http-error";
 import { nextStatuses } from "@/lib/order-status";
-import {
-  addOrderEvent,
-  DEMO_PAYMENT_PREFIX,
-  eraseOrder,
-  releaseExpiredOrders,
-  restoreStock,
-} from "@/lib/orders";
+import { addOrderEvent, DEMO_PAYMENT_PREFIX, eraseOrder, releaseExpiredOrders } from "@/lib/orders";
 import { logError } from "@/lib/error-log";
 import { refundPayment } from "@/lib/razorpay";
 
-const { orders, orderItems, orderEvents } = schema;
+const { orders, orderItems, orderEvents, orderRefunds, inventory, stockMovements } = schema;
 
 export const PAGE_SIZE = 20;
 
@@ -100,59 +94,141 @@ export async function saveShipping(
   });
 }
 
-const REFUND_PENDING = "pending";
 const refundable: OrderStatus[] = ["paid", "packed", "shipped", "delivered", "needs_refund"];
 
 /**
- * Full refund through Razorpay (simulated for mock payments). Stock goes back
- * on sale if the order hadn't left the store yet.
+ * Refund all or part of an order through Razorpay (simulated for demo payments).
+ *
+ * - `amount`: ₹ to send back — by default everything not refunded yet.
+ * - `items`: the pieces this pays for. If the parcel hadn't left the shop, they go back into stock
+ *   (a full refund puts back everything not already put back).
+ * - The amount is reserved first (a "pending" row, with the order row locked), so two people
+ *   refunding at once — or a refund racing an approval — can never send the same money twice.
+ * - Once everything is refunded the order's status becomes "refunded".
+ *
+ * Returns the refund id.
  */
-export async function refundOrder(orderId: string, actor: string, reason: string) {
+export async function refundAmount(
+  orderId: string,
+  actor: string,
+  reason: string,
+  opts: { amount?: number; items?: RefundLine[]; requestId?: string } = {},
+) {
   const db = getDb();
-  const [order] = await db.select().from(orders).where(eq(orders.id, orderId)).limit(1);
-  if (!order) throw new HttpError(404, "Order not found.");
-  if (!refundable.includes(order.status)) throw new HttpError(400, "This order can’t be refunded.");
-  if (!order.razorpayPaymentId) throw new HttpError(400, "This order has no payment to refund.");
+  // 1) Check and reserve.
+  const { order, claim } = await db.transaction(async (tx) => {
+    const [order] = await tx.select().from(orders).where(eq(orders.id, orderId)).for("update");
+    if (!order) throw new HttpError(404, "Order not found.");
+    if (!refundable.includes(order.status)) throw new HttpError(400, "This order can’t be refunded.");
+    if (!order.razorpayPaymentId) throw new HttpError(400, "This order has no payment to refund.");
+    const [{ taken }] = await tx
+      .select({ taken: sql<number>`coalesce(sum(${orderRefunds.amount}), 0)::int` })
+      .from(orderRefunds)
+      .where(eq(orderRefunds.orderId, orderId));
+    const left = order.total - taken;
+    if (left <= 0) throw new HttpError(409, "This order is already being refunded or has been refunded.");
+    const amount = opts.amount ?? left;
+    if (!Number.isInteger(amount) || amount < 1) throw new HttpError(400, "Enter an amount of at least ₹1.");
+    if (amount > left)
+      throw new HttpError(400, `Only ₹${left.toLocaleString("en-IN")} is left to refund on this order.`);
+    const [claim] = await tx
+      .insert(orderRefunds)
+      .values({ orderId, amount, items: opts.items ?? [], reason, actor, requestId: opts.requestId ?? null })
+      .returning();
+    return { order, claim };
+  });
 
-  // Demo orders took no money, so their "refund" is simulated.
-  const isMock = order.razorpayPaymentId.startsWith(DEMO_PAYMENT_PREFIX);
-  // Claim the refund atomically: if two people click "Refund" at once, only
-  // one gets past this line, so Razorpay is never asked to refund twice.
-  const [claimed] = await db
-    .update(orders)
-    .set({ refundId: REFUND_PENDING })
-    .where(and(eq(orders.id, orderId), isNull(orders.refundId), inArray(orders.status, refundable)))
-    .returning({ status: orders.status });
-  if (!claimed) throw new HttpError(409, "This order is already being refunded or has been refunded.");
-
+  // 2) Send the money (outside the transaction: never hold a lock while waiting on Razorpay).
+  const isMock = order.razorpayPaymentId!.startsWith(DEMO_PAYMENT_PREFIX);
   let refund: { id: string };
   try {
     refund = isMock
       ? { id: `rfnd_mock_${crypto.randomUUID().slice(0, 8)}` }
-      : await refundPayment(order.razorpayPaymentId, { order: orderId });
+      : await refundPayment(order.razorpayPaymentId!, { order: orderId, refund: claim.id }, claim.amount);
   } catch (e) {
     await logError("payment", e, { path: "refund", ref: orderId });
-    // Release the claim so it can be retried.
+    // Release the reservation so it can be tried again.
     await db
-      .update(orders)
-      .set({ refundId: null })
-      .where(and(eq(orders.id, orderId), eq(orders.refundId, REFUND_PENDING)));
+      .delete(orderRefunds)
+      .where(and(eq(orderRefunds.id, claim.id), eq(orderRefunds.status, "pending")));
     throw e;
   }
 
+  // 3) Record it.
   await db.transaction(async (tx) => {
-    const [o] = await tx
+    await tx
+      .update(orderRefunds)
+      .set({ status: "done", razorpayRefundId: refund.id })
+      .where(eq(orderRefunds.id, claim.id));
+    const [o] = await tx.select().from(orders).where(eq(orders.id, orderId)).for("update");
+    const done = await tx
+      .select()
+      .from(orderRefunds)
+      .where(and(eq(orderRefunds.orderId, orderId), eq(orderRefunds.status, "done")));
+    const refundedAmount = done.reduce((a, r) => a + r.amount, 0);
+    const full = refundedAmount >= o.total;
+    await tx
       .update(orders)
-      .set({ status: "refunded", refundId: refund.id, refundedAt: new Date() })
-      .where(and(eq(orders.id, orderId), eq(orders.refundId, REFUND_PENDING)))
-      .returning({ id: orders.id });
-    if (!o) throw new HttpError(409, "The order changed while refunding. Please check it.");
-    // Stock goes back only if the parcel hadn’t left (status at the moment of claiming).
-    if (claimed.status === "paid" || claimed.status === "packed")
-      await restoreStock(tx, orderId, "refund", actor);
-    await addOrderEvent(tx, orderId, "refunded", actor, `${refund.id}${reason ? ` — ${reason}` : ""}`);
+      .set(
+        full
+          ? { refundedAmount, status: "refunded", refundId: refund.id, refundedAt: new Date() }
+          : { refundedAmount },
+      )
+      .where(eq(orders.id, orderId));
+
+    // Stock goes back only if the parcel hadn't left the shop.
+    if (order.status === "paid" || order.status === "packed") {
+      let lines: { productId: string; size: string; quantity: number }[] = claim.items;
+      if (full && !claim.items.length) {
+        // Everything not already put back by earlier part refunds.
+        const items = await tx.select().from(orderItems).where(eq(orderItems.orderId, orderId));
+        const back = done.filter((r) => r.id !== claim.id).flatMap((r) => r.items);
+        lines = items.map((i) => ({
+          productId: i.productId,
+          size: i.size,
+          quantity:
+            i.quantity - back.filter((b) => b.orderItemId === i.id).reduce((a, b) => a + b.quantity, 0),
+        }));
+      }
+      for (const l of lines.filter((x) => x.quantity > 0)) {
+        await tx
+          .update(inventory)
+          .set({ quantity: sql`${inventory.quantity} + ${l.quantity}` })
+          .where(and(eq(inventory.productId, l.productId), eq(inventory.size, l.size)));
+        await tx.insert(stockMovements).values({
+          productId: l.productId,
+          size: l.size,
+          change: l.quantity,
+          reason: "refund",
+          orderId,
+          actor,
+        });
+      }
+    }
+    await addOrderEvent(
+      tx,
+      orderId,
+      full ? "refunded" : "part_refunded",
+      actor,
+      `₹${claim.amount.toLocaleString("en-IN")} · ${refund.id}${reason ? ` — ${reason}` : ""}`,
+    );
   });
   return refund.id;
+}
+
+/** Full refund of whatever is left on the order. */
+export function refundOrder(orderId: string, actor: string, reason: string) {
+  return refundAmount(orderId, actor, reason);
+}
+
+/** Refunds paid on these orders (newest first). */
+export async function refundsFor(orderIds: string[]) {
+  if (!orderIds.length) return [];
+  return getDb()
+    .select()
+    .from(orderRefunds)
+    .where(and(inArray(orderRefunds.orderId, orderIds), eq(orderRefunds.status, "done")))
+    .orderBy(desc(orderRefunds.createdAt));
 }
 
 export async function orderItemsFor(orderIds: string[]) {
@@ -173,8 +249,12 @@ export async function deleteOrder(orderId: string, actor: string) {
         400,
         "This order is still waiting for payment. You can delete it once it expires (30 minutes).",
       );
-    if (order.refundId === REFUND_PENDING)
-      throw new HttpError(409, "This order is being refunded right now.");
+    const [busy] = await tx
+      .select({ id: orderRefunds.id })
+      .from(orderRefunds)
+      .where(and(eq(orderRefunds.orderId, orderId), eq(orderRefunds.status, "pending")))
+      .limit(1);
+    if (busy) throw new HttpError(409, "This order is being refunded right now.");
     await eraseOrder(tx, order, actor);
     return order;
   });

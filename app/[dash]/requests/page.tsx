@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { listRequests } from "@/lib/admin/team";
 import { getCategories } from "@/lib/categories";
-import { listRefundRequests } from "@/lib/refunds";
+import { listRefundRequests, payoutsFor } from "@/lib/refunds";
 import { RefundRequestCard } from "@/components/dashboard/refund-request-card";
 import { adminHref, requirePage } from "@/lib/staff";
 import { ActionForm } from "@/components/dashboard/action-form";
@@ -29,6 +29,7 @@ export default async function RequestsPage({
       : type === "delete_category"
         ? adminHref("categories")
         : adminHref(`products/${encodeURIComponent(id)}`);
+  const payouts = await payoutsFor(refunds.rows.map((x) => x.request.id));
   const categoryNames = new Map((await getCategories(false)).map((c) => [c.id, c.name] as const));
 
   return (
@@ -82,6 +83,7 @@ export default async function RequestsPage({
             isAdmin
             canVerify
             bulkForm="refund-bulk"
+            payout={payouts.get(request.id)}
             customer={customer}
             orderHref={adminHref(`orders/${encodeURIComponent(request.orderId)}`)}
           />

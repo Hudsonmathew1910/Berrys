@@ -2124,3 +2124,26 @@ button.rows-image:hover {
 .content-preview-stage iframe.phone {
   max-width: 390px;
 }
+
+/* Refunds sent (order page) and payout status on refund requests */
+.refund-history {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.refund-paid {
+  margin: 0;
+  padding: 8px 10px;
+  background: #edf5ef;
+  color: #2f6b3d;
+  font-weight: 600;
+}
+.refund-next {
+  display: grid;
+  gap: 6px;
+}
+.refund-next p {
+  margin: 0;
+}
