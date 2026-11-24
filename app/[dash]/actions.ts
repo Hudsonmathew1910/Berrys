@@ -137,6 +137,8 @@ export async function unlockAction(_: ActionResult, f: FormData): Promise<Action
       }
     }
     await unlockDashboard(staff.id);
+    // Who got in, from where: lets the owner spot a stolen password in Activity.
+    await logActivity(actorName(staff), "Unlocked dashboard", "", `IP ${await clientIp()}`);
     return done("Unlocked");
   } catch (e) {
     if (e instanceof HttpError) return { error: e.message };

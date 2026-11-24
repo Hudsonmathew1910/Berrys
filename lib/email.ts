@@ -174,7 +174,7 @@ function layout(s: Settings, body: string) {
 }
 
 const button = (href: string, label: string) =>
-  `<p style="margin:22px 0"><a href="${href}" style="background:#183147;color:#ffffff;padding:12px 22px;border-radius:8px;text-decoration:none;font-weight:bold;display:inline-block">${escape(label)}</a></p>`;
+  `<p style="margin:22px 0"><a href="${escape(href)}" style="background:#183147;color:#ffffff;padding:12px 22px;border-radius:8px;text-decoration:none;font-weight:bold;display:inline-block">${escape(label)}</a></p>`;
 
 function itemsTable(order: Order, items: Item[], totalLabel = "Total paid") {
   const rows = items

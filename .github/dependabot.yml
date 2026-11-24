@@ -1,0 +1,16 @@
+# Weekly pull requests for package and GitHub Action updates; security fixes come as soon as they're published.
+# Every Dependabot pull request runs the full CI (including the attack tests) before you merge it.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      minor-and-patch:
+        update-types: ["minor", "patch"]
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly

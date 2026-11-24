@@ -54,6 +54,8 @@ export function handleError(
   log: { source?: ErrorSource; path?: string; ref?: string } = {},
 ) {
   if (e instanceof HttpError) return json({ error: e.message }, e.status);
+  // Unreadable request body (broken JSON): the sender's mistake, not ours — and not worth logging.
+  if (e instanceof SyntaxError) return json({ error: "That request couldn’t be read." }, 400);
   if (e instanceof ZodError) {
     return json({ error: e.issues[0]?.message || "Please check the details you entered." }, 400);
   }

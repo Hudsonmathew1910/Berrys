@@ -24,6 +24,8 @@ export async function POST(request: Request) {
     await rateLimit("login-code-ip", clientIp(request), 20, 10 * 60);
     const { email } = bodySchema.parse(await request.json());
     await rateLimit("login-code", email, 3, 10 * 60);
+    // Daily cap too: 10 codes × 5 tries = at most 50 guesses a day at one account.
+    await rateLimit("login-code-day", email, 10, 24 * 60 * 60);
 
     const code = await issueLoginCode(email);
     try {

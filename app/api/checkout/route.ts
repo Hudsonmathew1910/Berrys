@@ -40,6 +40,9 @@ export async function POST(request: Request) {
       throw new HttpError(503, "Online payment isn’t available yet. Please check back soon.");
     }
     await rateLimit("checkout", clientIp(request), 10, 10 * 60);
+    // Per account as well, so one account can't hold stock from many addresses.
+    await rateLimit("checkout-user", viewer.userId, 10, 10 * 60);
+    await rateLimit("checkout-user-day", viewer.userId, 40, 24 * 60 * 60);
 
     const body = bodySchema.parse(await request.json());
     let address = body.addressId ? await getAddress(viewer.userId, body.addressId) : null;

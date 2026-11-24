@@ -1,4 +1,5 @@
-# Checks every push and pull request: lint, types, unit tests, and the browser tests.
+# Checks every push and pull request: package vulnerabilities, lint, types, unit tests,
+# the browser tests and the attack tests.
 # Needs no secrets: tests use throwaway databases and never email or charge anyone.
 name: CI
 
@@ -25,6 +26,8 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
+      - name: Known vulnerabilities in the packages the site runs
+        run: npm audit --omit=dev --audit-level=high
       - name: Lint
         run: npm run lint
       - name: Types
@@ -33,6 +36,10 @@ jobs:
         run: npm test
       - name: Browser tests (real PostgreSQL + Chrome)
         run: npm run test:e2e
+      - name: Attack tests (same build)
+        run: npm run test:attack
+        env:
+          E2E_SKIP_BUILD: "1"
       - name: Keep screenshots when browser tests fail
         if: failure()
         uses: actions/upload-artifact@v4

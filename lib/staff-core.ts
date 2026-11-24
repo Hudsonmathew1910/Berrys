@@ -71,7 +71,7 @@ export const staffDefaultPermissions: Permission[] = [
 
 /**
  * The secret dashboard address, from ADMIN_PATH (one URL segment, e.g.
- * "berrys-office-7k2"). Every other address shows "Page not found".
+ * "your-own-random-words"). Every other address shows "Page not found".
  */
 export function adminPath() {
   const raw = (process.env.ADMIN_PATH || "berrys-admin").replace(/^\/+|\/+$/g, "");

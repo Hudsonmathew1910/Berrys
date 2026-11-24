@@ -148,6 +148,13 @@
       "when": 1795532983534,
       "tag": "0020_request_amount",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1795541154491,
+      "tag": "0021_lock_function_defaults",
+      "breakpoints": true
     }
   ]
 }

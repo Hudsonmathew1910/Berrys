@@ -27,7 +27,7 @@ An online store for Berry’s children’s clothing: a storefront with search, f
 
 ### The staff dashboard
 
-The dashboard lives at a **secret address** set by `ADMIN_PATH` (e.g. `ADMIN_PATH=berrys-office-7k2` → `/berrys-office-7k2`). `/admin` does not exist. Anyone who isn't an active admin or staff member gets **Page not found** there.
+The dashboard lives at a **secret address** set by `ADMIN_PATH` (your own random words — e.g. generate one with `node -e "console.log(require('crypto').randomBytes(8).toString('hex'))"`; never use an example from these docs). `/admin` does not exist. Anyone who isn't an active admin or staff member gets **Page not found** there.
 
 Entering takes two steps: log in to the site with Google, then enter your **dashboard password**. The dashboard stays unlocked until you lock it, log out, or close the browser (12 hours at most).
 
@@ -141,6 +141,7 @@ public/images/berrys-logo-full.webp   footer logo · berrys-mark.webp header mar
 | `npm test`            | Tests on a throwaway in-memory database    |
 | `npm run test:live`   | Race-condition tests on the real database  |
 | `npm run test:e2e`    | Browser tests of the shop and dashboard    |
+| `npm run test:attack` | Attack tests (what a hacker would try)     |
 
 `npm test` runs every migration on a temporary database (PGlite), with email and Razorpay
 switched off, so it is safe to run any time. `npm run test:live` uses `DATABASE_URL` from
@@ -153,6 +154,13 @@ the dashboard and the shop — about 100 checks, a few minutes. It never uses th
 `.env` and never sends email or charges. Options: `E2E_SKIP_BUILD=1` reuses the last build,
 `E2E_PORT` (default 3300), `CHROME_PATH` for a browser other than Chrome. Screenshots go to
 `tests/e2e-output/`.
+
+`npm run test:attack` uses the same throwaway setup to try about 90 real attacks: opening
+the dashboard without permission, changing IDs to reach other customers’ orders and addresses,
+editing prices, negative quantities, fake payment confirmations and webhooks, guessing sign-in
+codes, scripts in names, SQL injection, non-photo uploads, requests from other websites, stolen
+and expired sessions, exposed files and secrets in pages or browser scripts. GitHub runs it (with
+`npm audit`, lint, types and every other suite) on each push; CodeQL scans the code weekly.
 
 ## Security
 
