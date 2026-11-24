@@ -1,0 +1,42 @@
+# Checks every push and pull request: lint, types, unit tests, and the browser tests.
+# Needs no secrets: tests use throwaway databases and never email or charge anyone.
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Lint
+        run: npm run lint
+      - name: Types
+        run: npm run typecheck
+      - name: Unit tests
+        run: npm test
+      - name: Browser tests (real PostgreSQL + Chrome)
+        run: npm run test:e2e
+      - name: Keep screenshots when browser tests fail
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-screenshots
+          path: tests/e2e-output/
+          if-no-files-found: ignore

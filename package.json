@@ -16,7 +16,7 @@
     "test:e2e": "node tests/e2e.mjs",
     "format": "prettier --write .",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "drizzle-kit migrate",
+    "db:migrate": "node scripts/migrate.mjs",
     "db:studio": "drizzle-kit studio",
     "reset-admin-password": "node scripts/reset-admin-password.mjs"
   },
