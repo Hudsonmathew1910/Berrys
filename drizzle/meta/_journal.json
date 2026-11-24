@@ -120,6 +120,13 @@
       "when": 1795459593770,
       "tag": "0016_offer_replaces_sale",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1795499935588,
+      "tag": "0017_customer_bags",
+      "breakpoints": true
     }
   ]
 }

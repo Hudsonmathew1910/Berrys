@@ -49,6 +49,10 @@ export function createPersistedStore<T>(key: string, fallback: T) {
 
   return {
     set,
+    /** Current value (outside React). */
+    get: read,
+    /** Called on every change in this tab and in other tabs. */
+    subscribe,
     use: () => useSyncExternalStore(subscribe, read, () => fallback),
   };
 }

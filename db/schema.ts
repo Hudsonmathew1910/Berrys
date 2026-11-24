@@ -439,6 +439,18 @@ export const rateLimits = pgTable(
   (t) => [index("rate_limits_window_idx").on(t.windowStart)],
 ).enableRLS();
 
+/**
+ * A signed-in customer's bag and favourites, so they follow the account across devices.
+ * bag: [{ productId, size, quantity }] · likes: [productId]. Prices/stock are always read live.
+ */
+export const customerBags = pgTable("customer_bags", {
+  userId: uuid("user_id")
+    .primaryKey()
+    .references(() => users.id, { onDelete: "cascade" }),
+  bag: jsonb("bag").$type<{ productId: string; size: string; quantity: number }[]>().notNull().default([]),
+  likes: jsonb("likes").$type<string[]>().notNull().default([]),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}).enableRLS();
 /** Saved delivery addresses for an account. */
 export const addresses = pgTable(
   "addresses",

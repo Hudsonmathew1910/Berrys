@@ -9,6 +9,7 @@ import { MaintenancePage } from "@/components/shop/maintenance-page";
 import { SiteFooter } from "@/components/shop/site-footer";
 import { SiteHeader } from "@/components/shop/site-header";
 import { ToastProvider } from "@/components/store/toast";
+import { BagSync } from "@/components/store/bag-sync";
 
 /**
  * The base template for every customer page: shared header (logo, search,
@@ -29,6 +30,8 @@ export default async function ShopLayout({ children }: { children: React.ReactNo
   if (settings.maintenance && !staff) return <MaintenancePage settings={settings} loggedIn={!!viewer} />;
   return (
     <ToastProvider>
+      {/* Bag + favourites follow a signed-in customer across devices. */}
+      <BagSync userId={viewer?.userId ?? null} />
       {settings.maintenance && (
         <div className="maintenance-bar">
           Maintenance mode is ON — customers see the “we’ll be back soon” page.{" "}
