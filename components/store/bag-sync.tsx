@@ -67,16 +67,14 @@ export function BagSync({ userId }: { userId: string | null }) {
       applying = false;
     };
 
-    async function save(closing = false) {
-      if (saving && !closing) return;
+    async function save() {
+      if (saving) return;
       saving = true;
       try {
         const res = await fetch("/api/account/bag", {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ bag: bagStore.get(), likes: likesStore.get() }),
-          // Only when the tab is closing: lets the request finish after the page is gone.
-          keepalive: closing,
         });
         if (res.ok) ls.set(DIRTY, null);
       } catch {
@@ -122,14 +120,7 @@ export function BagSync({ userId }: { userId: string | null }) {
         void save();
       }, 500);
     };
-    // Tab closing with a change not yet saved: send it now (otherwise it's sent on the next visit).
-    const onHide = () => {
-      if (!timer) return;
-      clearTimeout(timer);
-      timer = undefined;
-      void save(true);
-    };
-    window.addEventListener("pagehide", onHide);
+    // A change not saved yet when the tab closes stays marked (DIRTY) and is saved on the next visit.
     const offBag = bagStore.subscribe(changed);
     const offLikes = likesStore.subscribe(changed);
     const onShow = () => document.visibilityState === "visible" && void pull();
@@ -144,7 +135,6 @@ export function BagSync({ userId }: { userId: string | null }) {
       offLikes();
       document.removeEventListener("visibilitychange", onShow);
       window.removeEventListener("focus", onShow);
-      window.removeEventListener("pagehide", onHide);
       clearInterval(every);
       if (timer) {
         clearTimeout(timer);

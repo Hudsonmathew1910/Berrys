@@ -34,7 +34,7 @@ export default async function CustomerPage({ params }: { params: Promise<{ id: s
       </div>
       <div className="dash-stats">
         <Stat label="Orders" value={c.orders.filter((o) => o.status !== "pending_payment").length} />
-        <Stat label="Spent" value={money(paid.reduce((a, o) => a + o.total, 0))} />
+        <Stat label="Spent" value={money(paid.reduce((a, o) => a + o.total - o.refundedAmount, 0))} />
         <Stat label="Last login" value={c.user.lastLoginAt.toLocaleDateString("en-IN")} />
       </div>
       <div className="dash-grid">

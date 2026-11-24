@@ -11,13 +11,21 @@ const likeTerm = (q: string) => `%${q.replace(/[\\%_]/g, (c) => "\\" + c)}%`;
 const daysAgo = (n: number) => new Date(Date.now() - n * 86_400_000);
 const sold = inArray(orders.status, salesStatuses);
 
+/** Order revenue after refunds already sent (part refunds included). */
+const netTotal = sql`(${orders.total} - ${orders.refundedAmount})`;
+/** Pieces of an order line still sold: its quantity minus pieces refunded from it. */
+const netQty = sql`(${orderItems.quantity} - coalesce((
+  select sum((e->>'quantity')::int) from ${schema.orderRefunds} r, jsonb_array_elements(r.items) e
+  where r.order_id = ${orderItems.orderId} and r.status = 'done' and e->>'orderItemId' = ${orderItems.id}::text
+), 0))`;
+
 /** Headline numbers for a period, plus the previous period for comparison. */
 export async function salesSummary(days: number) {
   const db = getDb();
   const period = (from: Date, to: Date) =>
     db
       .select({
-        revenue: sql<number>`coalesce(sum(${orders.total}),0)::int`,
+        revenue: sql<number>`coalesce(sum(${netTotal}),0)::int`,
         orders: sql<number>`count(*)::int`,
         customers: sql<number>`count(distinct ${orders.email})::int`,
       })
@@ -28,7 +36,7 @@ export async function salesSummary(days: number) {
     period(daysAgo(days), now),
     period(daysAgo(days * 2), daysAgo(days)),
     db
-      .select({ units: sql<number>`coalesce(sum(${orderItems.quantity}),0)::int` })
+      .select({ units: sql<number>`coalesce(sum(${netQty}),0)::int` })
       .from(orderItems)
       .innerJoin(orders, eq(orders.id, orderItems.orderId))
       .where(and(sold, gte(orders.paidAt, daysAgo(days)))),
@@ -46,7 +54,7 @@ export async function salesByDay(days: number) {
   const rows = await getDb()
     .select({
       day: sql<string>`to_char((${orders.paidAt} at time zone 'Asia/Kolkata')::date, 'YYYY-MM-DD')`,
-      revenue: sql<number>`sum(${orders.total})::int`,
+      revenue: sql<number>`sum(${netTotal})::int`,
       orders: sql<number>`count(*)::int`,
     })
     .from(orders)
@@ -66,8 +74,8 @@ export async function topProducts(days: number, limit = 10) {
     .select({
       productId: orderItems.productId,
       name: orderItems.name,
-      units: sql<number>`sum(${orderItems.quantity})::int`,
-      revenue: sql<number>`sum(${orderItems.quantity} * ${orderItems.price})::int`,
+      units: sql<number>`sum(${netQty})::int`,
+      revenue: sql<number>`sum(${netQty} * ${orderItems.price})::int`,
       image: sql<string>`max(${products.image})`,
     })
     .from(orderItems)
@@ -75,15 +83,15 @@ export async function topProducts(days: number, limit = 10) {
     .leftJoin(products, eq(products.id, orderItems.productId))
     .where(and(sold, gte(orders.paidAt, daysAgo(days))))
     .groupBy(orderItems.productId, orderItems.name)
-    .orderBy(desc(sql`sum(${orderItems.quantity})`))
+    .orderBy(desc(sql`sum(${netQty})`))
     .limit(limit);
 }
 
 /** Trending: biggest rise in units sold, last 7 days vs the 7 before. */
 export async function trendingProducts(limit = 8) {
   const weekAgo = daysAgo(7).toISOString();
-  const recent = sql`case when ${orders.paidAt} >= ${weekAgo}::timestamptz then ${orderItems.quantity} else 0 end`;
-  const before = sql`case when ${orders.paidAt} < ${weekAgo}::timestamptz then ${orderItems.quantity} else 0 end`;
+  const recent = sql`case when ${orders.paidAt} >= ${weekAgo}::timestamptz then ${netQty} else 0 end`;
+  const before = sql`case when ${orders.paidAt} < ${weekAgo}::timestamptz then ${netQty} else 0 end`;
   return getDb()
     .select({
       productId: orderItems.productId,
@@ -106,25 +114,25 @@ export async function salesByCategory(days: number) {
   return getDb()
     .select({
       category: orderItems.category,
-      units: sql<number>`sum(${orderItems.quantity})::int`,
-      revenue: sql<number>`sum(${orderItems.quantity} * ${orderItems.price})::int`,
+      units: sql<number>`sum(${netQty})::int`,
+      revenue: sql<number>`sum(${netQty} * ${orderItems.price})::int`,
     })
     .from(orderItems)
     .innerJoin(orders, eq(orders.id, orderItems.orderId))
     .where(and(sold, gte(orders.paidAt, daysAgo(days))))
     .groupBy(orderItems.category)
-    .orderBy(desc(sql`sum(${orderItems.quantity} * ${orderItems.price})`));
+    .orderBy(desc(sql`sum(${netQty} * ${orderItems.price})`));
 }
 
 /** Sizes that sell most (helps restocking). */
 export async function salesBySize(days: number) {
   return getDb()
-    .select({ size: orderItems.size, units: sql<number>`sum(${orderItems.quantity})::int` })
+    .select({ size: orderItems.size, units: sql<number>`sum(${netQty})::int` })
     .from(orderItems)
     .innerJoin(orders, eq(orders.id, orderItems.orderId))
     .where(and(sold, gte(orders.paidAt, daysAgo(days))))
     .groupBy(orderItems.size)
-    .orderBy(desc(sql`sum(${orderItems.quantity})`));
+    .orderBy(desc(sql`sum(${netQty})`));
 }
 
 export async function orderStatusCounts() {
@@ -174,7 +182,7 @@ export async function listCustomers(f: { q?: string; page: number }) {
     where.push(or(ilike(users.name, t), ilike(users.email, t), ilike(users.phone, t))!);
   }
   const db = getDb();
-  const spent = sql<number>`coalesce((select sum(o.total) from ${orders} o where o.user_id = "users"."id" and o.status in ('paid','packed','shipped','delivered')),0)::int`;
+  const spent = sql<number>`coalesce((select sum(o.total - o.refunded_amount) from ${orders} o where o.user_id = "users"."id" and o.status in ('paid','packed','shipped','delivered')),0)::int`;
   const count = sql<number>`(select count(*) from ${orders} o where o.user_id = "users"."id" and o.status <> 'pending_payment')::int`;
   const [[{ total }], rows] = await Promise.all([
     db

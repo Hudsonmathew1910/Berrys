@@ -396,6 +396,8 @@ export const approvalRequests = pgTable("approval_requests", {
   /** refund | delete_product | delete_order | delete_category */
   type: text("type").$type<ApprovalType>().notNull(),
   targetId: text("target_id").notNull(),
+  /** Refund requests: ₹ to refund (null = everything left on the order). */
+  amount: integer("amount"),
   reason: text("reason").notNull().default(""),
   status: text("status")
     .$type<"pending" | "processing" | "approved" | "rejected">()

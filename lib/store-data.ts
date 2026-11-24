@@ -82,20 +82,43 @@ export type ProductQuery = {
   perPage?: number;
 };
 
-/**
- * The product's own live sale price, else its MRP — for sorting by price in the database.
- * (Category / store offers are left out here; the price shown is always the full calculation.)
- */
-const sellingPrice = () =>
-  sql`coalesce((select least(o.value, ${products.price}) from ${schema.offers} o
-    where o.product_id = ${products.id} and o.active and o.starts_at <= now()
-      and (o.ends_at is null or o.ends_at > now())), ${products.price})`;
-
 /** Offer "o" is running right now. */
 const liveOffer = sql`o.active and o.starts_at <= now() and (o.ends_at is null or o.ends_at > now())`;
 /** Offer "o" (category / store / product offer) covers the product. */
 const offerCovers = sql`(o.scope = 'all' or (o.scope = 'category' and ${products.category} = any(o.targets))
   or (o.scope = 'product' and ${products.id} = any(o.targets)))`;
+
+/**
+ * What a customer pays right now, worked out in the database — the same rules as bestPrice() in
+ * lib/offers.ts (sale price unless an offer replaces it; each offer from the MRP, or from the sale
+ * price when set to "Apply both", skipped when set to "Skip"; lowest wins; never below ₹1).
+ * Used to sort by price and to find each category's cheapest piece.
+ */
+const sellingPrice = () => sql`(
+  with sale as (
+    select least(o.value, ${products.price}) as v from ${schema.offers} o
+    where o.product_id = ${products.id} and ${liveOffer}
+      and not exists (
+        select 1 from ${schema.offers} o where o.product_id is null and ${liveOffer} and ${offerCovers}
+          and ${products.id} = any(o.replaced)
+      )
+  )
+  select least(
+    coalesce((select v from sale), ${products.price}),
+    coalesce((
+      select min(greatest(1, case
+        when o.type = 'percent' then b.base - round(b.base * least(o.value, 90) / 100.0)::int
+        else b.base - o.value end))
+      from ${schema.offers} o
+      cross join lateral (
+        select case when exists (select 1 from sale) and ${products.id} = any(o.stacked)
+          then (select v from sale) else ${products.price} end as base
+      ) b
+      where o.product_id is null and ${liveOffer} and ${offerCovers}
+        and not (exists (select 1 from sale) and ${products.id} = any(o.excluded))
+    ), ${products.price})
+  )
+)`;
 
 /** Filtered, sorted, paginated catalogue — all done in the database, so it scales. */
 export async function queryProducts(q: ProductQuery) {

@@ -219,19 +219,17 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
             <p className="muted">
               {canRefund
                 ? `Sends money back to the customer through Razorpay. ${money(left)} can still be refunded${order.refundedAmount ? ` (${money(order.refundedAmount)} already refunded)` : ""}.`
-                : "An admin will review and approve a full refund."}
+                : `An admin will review and approve it. ${money(left)} can still be refunded.`}
             </p>
             <ActionForm
               action={refundAction}
               confirm={canRefund ? `Send this refund for ${order.id}? This cannot be undone.` : undefined}
             >
               <input type="hidden" name="orderId" value={order.id} />
-              {canRefund && (
-                <label>
-                  Amount (₹) — leave empty to refund all {money(left)}
-                  <input name="amount" type="number" min={1} max={left} step={1} placeholder={String(left)} />
-                </label>
-              )}
+              <label>
+                Amount (₹) — leave empty {canRefund ? "to refund" : "to ask for"} all {money(left)}
+                <input name="amount" type="number" min={1} max={left} step={1} placeholder={String(left)} />
+              </label>
               <label>
                 Reason
                 <input name="reason" required maxLength={500} />

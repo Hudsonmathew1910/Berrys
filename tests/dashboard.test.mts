@@ -470,6 +470,57 @@ console.log("Prices, offers and shipping at checkout");
     await q(sql`delete from orders where email in ('p1@b.co','p2@b.co','p3@b.co')`);
   });
 }
+await test("price sorting uses exactly what customers pay (sale, Skip, Apply both, Replace)", async () => {
+  await q(sql`insert into categories (name, sizes, sort_order) values ('SortCat', '{S}', 90)`);
+  const add = async (id: string, mrp: number, sale?: number) => {
+    await q(
+      sql`insert into products (id, name, category, price, image, images, color) values (${id}, ${id}, 'SortCat', ${mrp}, '/images/product-1.webp', '{/images/product-1.webp}', '#111111')`,
+    );
+    await q(sql`insert into inventory values (${id}, 'S', 5)`);
+    if (sale)
+      await q(
+        sql`insert into offers (name, type, value, scope, targets, starts_at, product_id) values ('Special price', 'price', ${sale}, 'product', ARRAY[${id}]::text[], now() - interval '1 minute', ${id})`,
+      );
+  };
+  await add("sort-a", 1000, 900); // Skip  → 900
+  await add("sort-b", 800); //       no sale → 30% off 800 = 560
+  await add("sort-c", 1200, 1100); // Apply both → 30% off 1100 = 770
+  await add("sort-d", 600, 590); //  Replace → 30% off 600 = 420
+  const { offer } = await cat.saveOffer(
+    {
+      name: "Sort 30",
+      type: "percent",
+      value: 30,
+      scope: "category",
+      targets: ["SortCat"],
+      startsAt: new Date(Date.now() - 60000),
+      endsAt: null,
+      active: true,
+    },
+    { "sort-a": "skip", "sort-c": "both", "sort-d": "replace" },
+  );
+  const low = (await store.queryProducts({ category: "SortCat", sort: "price-low" })).products;
+  assert.deepEqual(
+    low.map((x: { id: string; price: number }) => [x.id, x.price]),
+    [
+      ["sort-d", 420],
+      ["sort-b", 560],
+      ["sort-c", 770],
+      ["sort-a", 900],
+    ],
+  );
+  const high = (await store.queryProducts({ category: "SortCat", sort: "price-high" })).products;
+  assert.deepEqual(
+    high.map((x: { id: string }) => x.id),
+    ["sort-a", "sort-c", "sort-b", "sort-d"],
+  );
+  // The home page's "From ₹" is the category's cheapest real price.
+  assert.equal((await store.cheapestPerCategory())["SortCat"]?.price, 420);
+  await cat.deleteOffer(offer.id);
+  await q(sql`delete from products where category = 'SortCat'`);
+  await q(sql`delete from categories where name = 'SortCat'`);
+});
+
 console.log("Refunds: part, full, requests");
 {
   const refundsLib = await import("../lib/refunds.ts");
@@ -674,7 +725,45 @@ console.log("Refunds: part, full, requests");
     assert.equal((await row(o.orderId)).status, "refunded");
   });
 
+  await test("sales & analytics subtract refunds (revenue, and refunded pieces)", async () => {
+    const insightsLib = await import("../lib/admin/insights.ts");
+    const before = await insightsLib.salesSummary(30);
+    const o = await paidOrder("rf8@b.co"); // 3 pieces, ₹1,500
+    const mid = await insightsLib.salesSummary(30);
+    assert.equal(mid.revenue - before.revenue, 1500);
+    assert.equal(mid.units - before.units, 3);
+    const [lineM] = (await items(o.orderId)).filter((i) => i.size === "M");
+    await adminOrders.refundAmount(o.orderId, "tester", "one back", {
+      amount: 500,
+      items: [
+        { orderItemId: lineM.id, productId: "berry-3", name: lineM.name, size: "M", quantity: 1, price: 500 },
+      ],
+    });
+    const after = await insightsLib.salesSummary(30);
+    assert.equal(after.revenue - before.revenue, 1000);
+    assert.equal(after.units - before.units, 2);
+    const top = (await insightsLib.topProducts(30)).find(
+      (x: { productId: string }) => x.productId === "berry-3",
+    );
+    assert.ok(top && top.units >= 2);
+  });
+
+  await test("staff refund requests can ask for an amount", async () => {
+    const teamLib = await import("../lib/admin/team.ts");
+    const o = await paidOrder("rf9@b.co");
+    const req = await teamLib.createRequest("refund", o.orderId, "one piece torn", "staff@x", 400);
+    assert.equal(req.amount, 400);
+    await teamLib.decideRequest(req.id, "approved", "admin", "", (r) =>
+      adminOrders.refundAmount(r.targetId, "admin", r.reason, { amount: r.amount ?? undefined }),
+    );
+    assert.equal((await row(o.orderId)).refunded_amount, 400);
+    assert.equal((await row(o.orderId)).status, "paid");
+    const full = await teamLib.createRequest("refund", o.orderId, "rest", "staff@x");
+    assert.equal(full.amount, null);
+  });
+
   // Leave sales as the later analytics checks expect.
+  await q(sql`delete from approval_requests where requested_by = 'staff@x'`);
   await q(sql`delete from orders where email like 'rf_@b.co' or id = 'BRY-OLDREFUND'`);
   await q(sql`delete from users where email like 'rf_@b.co'`);
 }

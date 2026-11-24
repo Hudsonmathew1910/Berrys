@@ -129,6 +129,12 @@ export default async function RequestsPage({
               <Link href={target(r.type, r.targetId)}>
                 {r.type === "delete_category" ? (categoryNames.get(r.targetId) ?? r.targetId) : r.targetId}
               </Link>
+              {r.type === "refund" && (
+                <small className="muted">
+                  {" "}
+                  · {r.amount ? `₹${r.amount.toLocaleString("en-IN")}` : "full refund"}
+                </small>
+              )}
             </h2>
             <p>
               “{r.reason}”

@@ -41,3 +41,7 @@ yarn-error.log*
 
 # Keep the documented env template in git
 !.env.example
+
+# Browser tests: own build folder and screenshots
+/.next-e2e/
+/tests/e2e-output/

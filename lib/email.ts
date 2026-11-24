@@ -611,6 +611,7 @@ export async function sendTeamRequest(req: ApprovalRow, requesterEmail?: string 
     s,
     `<h2 style="color:#193547;margin-top:0">Waiting for your approval: ${title.toLowerCase()}</h2>
      <p>${await requestTarget(req)}</p>
+     ${req.type === "refund" ? `<p><b>Amount:</b> ${req.amount ? money(req.amount) : "full refund (everything left on the order)"}</p>` : ""}
      <p style="background:#f6f4ef;padding:10px 14px;border-radius:8px"><b>Reason:</b> ${escape(req.reason)}</p>
      <p style="color:#7d827e;font-size:13px">Asked by ${escape(req.requestedBy)}</p>
      ${button(`${serverEnv.siteUrl()}${adminHref("requests")}`, "Approve or reject")}`,

@@ -1,5 +1,8 @@
 import { after } from "next/server";
+import { eq } from "drizzle-orm";
+import { getDb, schema } from "@/db";
 import { getViewer } from "@/lib/auth";
+import { rateLimit } from "@/lib/rate-limit";
 import { assertSameOrigin, handleError, json } from "@/lib/http";
 import {
   DEMO_ORDER_SECONDS,
@@ -23,9 +26,18 @@ export async function POST(request: Request) {
   if (payment.mode !== "demo" || !payment.ready) return json({ error: "Not found" }, 404);
   try {
     assertSameOrigin(request);
-    if (!(await getViewer())) return json({ error: "Please log in." }, 401);
+    const viewer = await getViewer();
+    if (!viewer) return json({ error: "Please log in." }, 401);
+    await rateLimit("mock-pay", viewer.userId, 20, 10 * 60);
     const body = cancelPaymentSchema.parse(await request.json());
-    if (!body.razorpayOrderId.startsWith("mock_")) return json({ error: "Not a demo order." }, 400);
+    if (body.razorpayOrderId !== `mock_${body.orderId}`) return json({ error: "Not a demo order." }, 400);
+    // Only the shopper's own pending demo order (checked before anything changes).
+    const [own] = await getDb()
+      .select({ userId: schema.orders.userId, isDemo: schema.orders.isDemo })
+      .from(schema.orders)
+      .where(eq(schema.orders.razorpayOrderId, body.razorpayOrderId));
+    if (!own || !own.isDemo || (own.userId && own.userId !== viewer.userId))
+      return json({ error: "Order not found." }, 404);
     const result = await markOrderPaid(
       body.razorpayOrderId,
       `${DEMO_PAYMENT_PREFIX}${crypto.randomUUID().slice(0, 8)}`,

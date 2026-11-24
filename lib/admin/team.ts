@@ -106,7 +106,13 @@ export async function removeStaff(id: string) {
 
 // ---------------------------------------------------------------- approval requests
 
-export async function createRequest(type: ApprovalType, targetId: string, reason: string, by: string) {
+export async function createRequest(
+  type: ApprovalType,
+  targetId: string,
+  reason: string,
+  by: string,
+  amount?: number,
+) {
   const db = getDb();
   const [open] = await db
     .select({ id: approvalRequests.id })
@@ -122,7 +128,7 @@ export async function createRequest(type: ApprovalType, targetId: string, reason
   if (open) throw new HttpError(409, "A request for this is already waiting for an admin.");
   const [req] = await db
     .insert(approvalRequests)
-    .values({ type, targetId, reason, requestedBy: by })
+    .values({ type, targetId, reason, requestedBy: by, amount: amount ?? null })
     .returning();
   return req;
 }

@@ -276,8 +276,14 @@ export async function myNotificationsAction(_: ActionResult, f: FormData) {
 // ---------------------------------------------------------------- staff → admin requests
 
 /** Saves a request for an admin and emails the admins who can approve it (and the owner). */
-async function sendRequest(staff: Staff, type: ApprovalType, targetId: string, reason: string) {
-  const req = await team.createRequest(type, targetId, reason, actorName(staff));
+async function sendRequest(
+  staff: Staff,
+  type: ApprovalType,
+  targetId: string,
+  reason: string,
+  amount?: number,
+) {
+  const req = await team.createRequest(type, targetId, reason, actorName(staff), amount);
   after(() => sendTeamRequest(req, staff.email));
 }
 
@@ -343,14 +349,16 @@ export async function refundAction(_: ActionResult, f: FormData) {
           : `Refunded ₹${amount?.toLocaleString("en-IN")} (${refundId}).`,
       );
     }
-    if (amount)
-      return {
-        error:
-          "Only people who can issue refunds can refund part of an order. Send a full refund request instead.",
-      };
-    await sendRequest(staff, "refund", id, reason);
-    await logActivity(actorName(staff), "Requested refund", id, reason);
-    return done("Refund request sent to an admin.");
+    // No refund permission: ask an admin — for the whole order, or for an amount.
+    if (amount !== undefined && (!Number.isInteger(amount) || amount < 1))
+      return { error: "Enter an amount of at least ₹1, or leave it empty for a full refund." };
+    await sendRequest(staff, "refund", id, reason, amount);
+    await logActivity(actorName(staff), "Requested refund", id, `${amount ? `₹${amount} — ` : ""}${reason}`);
+    return done(
+      amount
+        ? `Request to refund ₹${amount.toLocaleString("en-IN")} sent to an admin.`
+        : "Refund request sent to an admin.",
+    );
   });
 }
 
@@ -809,17 +817,20 @@ export async function removeStaffAction(_: ActionResult, f: FormData) {
 async function decideOne(staff: Staff, id: string, decision: "approved" | "rejected", note: string) {
   const req = await team.getRequest(id);
   if (!req || req.status !== "pending") throw new HttpError(409, "This request was already handled.");
-  await team.decideRequest(req.id, decision, actorName(staff), note, (r) =>
+  let refundRef = "";
+  await team.decideRequest(req.id, decision, actorName(staff), note, async (r) =>
     r.type === "refund"
-      ? ord.refundOrder(r.targetId, actorName(staff), r.reason)
+      ? // The amount asked for (or everything left), with the refund progress emails.
+        (refundRef = await ord.refundAmount(r.targetId, actorName(staff), r.reason, {
+          amount: r.amount ?? undefined,
+        }))
       : r.type === "delete_order"
         ? ord.deleteOrder(r.targetId, actorName(staff))
         : r.type === "delete_category"
           ? cat.deleteCategory(r.targetId)
           : cat.deleteProduct(r.targetId),
   );
-  if (decision === "approved" && req.type === "refund")
-    after(() => sendStatusUpdate(req.targetId, "refunded"));
+  if (decision === "approved" && refundRef) after(() => sendRefundProgress(refundRef));
   await logActivity(
     actorName(staff),
     `${decision === "approved" ? "Approved" : "Rejected"} ${req.type} request`,

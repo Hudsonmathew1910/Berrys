@@ -5,7 +5,7 @@ import nextTs from "eslint-config-next/typescript";
 const eslintConfig = defineConfig([
   ...nextVitals,
   ...nextTs,
-  globalIgnores([".next/**", "out/**", "drizzle/**", "next-env.d.ts"]),
+  globalIgnores([".next/**", ".next-e2e/**", "out/**", "drizzle/**", "next-env.d.ts", "tests/e2e-output/**"]),
   {
     // Product photos come from Supabase Storage / user uploads with unknown
     // dimensions, so plain <img> is intentional throughout the storefront.

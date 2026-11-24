@@ -23,6 +23,8 @@ const securityHeaders = [
 ];
 
 const nextConfig: NextConfig = {
+  // The browser tests build into their own folder so they never share caches with `next dev`.
+  distDir: process.env.NEXT_DIST_DIR || ".next",
   // Don't advertise the framework in response headers.
   poweredByHeader: false,
   // Never ship readable source maps of the browser code in production.

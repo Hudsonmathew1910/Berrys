@@ -140,11 +140,19 @@ public/images/berrys-logo-full.webp   footer logo · berrys-mark.webp header mar
 | `npm run db:studio`   | Browse the database                        |
 | `npm test`            | Tests on a throwaway in-memory database    |
 | `npm run test:live`   | Race-condition tests on the real database  |
+| `npm run test:e2e`    | Browser tests of the shop and dashboard    |
 
 `npm test` runs every migration on a temporary database (PGlite), with email and Razorpay
 switched off, so it is safe to run any time. `npm run test:live` uses `DATABASE_URL` from
 `.env`: it creates a temporary product and test orders, then deletes them — run it only
 when you mean to.
+
+`npm run test:e2e` builds the app into its own folder (`.next-e2e`), starts a throwaway real
+PostgreSQL 17 (no Docker needed), applies every migration and drives your installed Chrome through
+the dashboard and the shop — about 100 checks, a few minutes. It never uses the database in
+`.env` and never sends email or charges. Options: `E2E_SKIP_BUILD=1` reuses the last build,
+`E2E_PORT` (default 3300), `CHROME_PATH` for a browser other than Chrome. Screenshots go to
+`tests/e2e-output/`.
 
 ## Security
 
