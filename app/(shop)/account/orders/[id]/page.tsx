@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft, Check, ExternalLink } from "lucide-react";
-import { getViewer } from "@/lib/auth";
+import { requireViewerPage } from "@/lib/auth-page";
 import { money } from "@/lib/catalog";
 import { formatIndianMobile } from "@/lib/phone";
 import { orderForUser } from "@/lib/store-data";
@@ -24,8 +24,9 @@ const fmt = (d: Date | null) =>
   d ? d.toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" }) : "";
 
 export default async function OrderDetailPage({ params }: { params: Promise<{ id: string }> }) {
-  const viewer = (await getViewer())!;
-  const order = await orderForUser(viewer.userId, decodeURIComponent((await params).id));
+  const id = decodeURIComponent((await params).id);
+  const viewer = await requireViewerPage(`/account/orders/${encodeURIComponent(id)}`);
+  const order = await orderForUser(viewer.userId, id);
   if (!order) notFound();
   const [refunds, settings, sent] = await Promise.all([
     requestsForOrder(order.id),

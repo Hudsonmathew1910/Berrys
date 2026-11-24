@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { ArrowRight, ShoppingBag } from "lucide-react";
 import { listAddresses } from "@/lib/addresses";
-import { getViewer } from "@/lib/auth";
+import { requireViewerPage } from "@/lib/auth-page";
 import { money } from "@/lib/catalog";
 import { firebaseConfig } from "@/lib/firebase-verify";
 import { statusLabels } from "@/lib/order-status";
@@ -20,7 +20,7 @@ export const dynamic = "force-dynamic";
 
 /** Everything about the account on one page; the side menu scrolls to each section. */
 export default async function AccountPage() {
-  const viewer = (await getViewer())!;
+  const viewer = await requireViewerPage("/account");
   const phoneLogin = !!firebaseConfig();
   const [orders, addresses, settings] = await Promise.all([
     ordersForUser(viewer.userId),

@@ -662,6 +662,23 @@ try {
       [h(live), u.id, h(old)],
     );
     const signedIn = (r) => r.text.includes("Lee Leaver");
+    const errsBefore = (await one(`select count(*)::int n from error_logs`)).n;
+    for (const path of ["/account", "/account/orders/BRY-VICTIM"]) {
+      const r = await fetch(B + path, { redirect: "manual", headers: { "x-real-ip": ip } });
+      const body = await r.text();
+      // A redirect is either an HTTP redirect, or (once the page has started streaming) a
+      // redirect instruction inside the page — the browser follows both.
+      const to = r.headers.get("location") ?? body.match(/NEXT_REDIRECT;[a-z]+;([^;"\\]+)/)?.[1] ?? "";
+      check(
+        `signed out, ${path} sends you to log in`,
+        to.includes("/login") && !body.includes("Victim Bee") && !body.includes("12 Secret Street"),
+        `got ${r.status} ${to}`,
+      );
+    }
+    check(
+      "…without logging any error",
+      (await one(`select count(*)::int n from error_logs`)).n === errsBefore,
+    );
     check("a valid session works (control)", signedIn(await call("/account", { as: live })));
     check("an expired session is refused", !signedIn(await call("/account", { as: old })));
     const forged = await call("/account", { as: newToken() });
