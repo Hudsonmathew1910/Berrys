@@ -14,6 +14,8 @@ export function ShopFilters(p: {
   stock: boolean;
   gender?: string;
   sizes: string[];
+  /** Other filters to keep (on sale / offer). */
+  extra?: Record<string, string | undefined>;
 }) {
   const submit = (e: React.ChangeEvent<HTMLSelectElement | HTMLInputElement>) =>
     e.currentTarget.form?.requestSubmit();
@@ -21,6 +23,7 @@ export function ShopFilters(p: {
     <form className="collection-tools shop-filters" action="/shop">
       {p.category && <input type="hidden" name="category" value={p.category} />}
       {p.q && <input type="hidden" name="q" value={p.q} />}
+      {Object.entries(p.extra ?? {}).map(([k, v]) => v && <input key={k} type="hidden" name={k} value={v} />)}
       <div>
         <SlidersHorizontal size={16} />
         <label>

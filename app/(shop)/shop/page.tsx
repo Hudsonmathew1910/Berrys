@@ -3,7 +3,8 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Search } from "lucide-react";
 import { getCategories } from "@/lib/categories";
-import { allSizes, queryProducts, type ProductQuery } from "@/lib/store-data";
+import { allSizes, liveOffers, queryProducts, type ProductQuery } from "@/lib/store-data";
+import { offerEndsText } from "@/lib/catalog";
 import { Pagination } from "@/components/shop/pagination";
 import { ProductCard } from "@/components/shop/product-card";
 import { ShopFilters } from "@/components/shop/shop-filters";
@@ -18,6 +19,10 @@ type Params = {
   stock?: string;
   gender?: string;
   page?: string;
+  /** "1" = only discounted pieces */
+  sale?: string;
+  /** one live offer's pieces */
+  offer?: string;
 };
 
 const sorts = ["featured", "new", "price-low", "price-high", "name"] as const;
@@ -34,7 +39,9 @@ export async function generateMetadata({
 
 export default async function ShopPage({ searchParams }: { searchParams: Promise<Params> }) {
   const sp = await searchParams;
-  const [catList, sizeList] = await Promise.all([getCategories(), allSizes()]);
+  const [catList, sizeList, offers] = await Promise.all([getCategories(), allSizes(), liveOffers()]);
+  const offer = offers.find((o) => o.id === sp.offer);
+  const sale = !offer && sp.sale === "1";
   const categories = ["All pieces", ...catList.map((c) => c.name)];
   const category = categories.slice(1).includes(sp.category ?? "") ? sp.category : undefined;
   const gender = sp.gender === "girls" || sp.gender === "boys" ? sp.gender : undefined;
@@ -50,10 +57,21 @@ export default async function ShopPage({ searchParams }: { searchParams: Promise
     sort,
     size,
     inStock: sp.stock === "1",
+    onSale: sale,
+    offerId: offer?.id,
     page,
     perPage: PER_PAGE,
   });
-  const params = { category, q, gender, sort: sort === "featured" ? undefined : sort, size, stock: sp.stock };
+  const params = {
+    category,
+    q,
+    gender,
+    sort: sort === "featured" ? undefined : sort,
+    size,
+    stock: sp.stock,
+    sale: sale ? "1" : undefined,
+    offer: offer?.id,
+  };
   // Past the last page (e.g. after filtering): go to the last real page.
   if (result.total > 0 && page > result.pages) {
     const qs = new URLSearchParams(Object.entries(params).filter(([, v]) => v) as [string, string][]);
@@ -71,8 +89,20 @@ export default async function ShopPage({ searchParams }: { searchParams: Promise
       </nav>
       <div className="collection-heading shopping-heading">
         <div>
-          <div className="eyebrow">THE BERRY’S COLLECTION</div>
-          <h1>{q ? `Results for “${q}”` : (category ?? "Discover the collection")}</h1>
+          <div className="eyebrow">
+            {offer ? `OFFER · ${offer.label.toUpperCase()}` : sale ? "ON SALE" : "THE BERRY’S COLLECTION"}
+          </div>
+          <h1>
+            {q
+              ? `Results for “${q}”`
+              : offer
+                ? offer.name
+                : sale
+                  ? "On sale now"
+                  : (category ?? "Discover the collection")}
+          </h1>
+          {offer && <p className="muted">{offer.covers}</p>}
+          {offer?.endsAt && <p className="offer-ends">{offerEndsText(offer.endsAt)}</p>}
         </div>
         <p>
           {result.total
@@ -82,8 +112,11 @@ export default async function ShopPage({ searchParams }: { searchParams: Promise
       </div>
 
       <div className="category-tabs">
+        <Link href="/shop?sale=1" className={"sale-tab" + (sale || offer ? " active" : "")}>
+          On sale
+        </Link>
         {categories.map((c) => {
-          const active = c === "All pieces" ? !category : category === c;
+          const active = c === "All pieces" ? !category && !sale && !offer : category === c;
           const href = c === "All pieces" ? "/shop" : `/shop?category=${encodeURIComponent(c)}`;
           return (
             <Link key={c} href={href} className={active ? "active" : ""}>
@@ -93,7 +126,21 @@ export default async function ShopPage({ searchParams }: { searchParams: Promise
         })}
       </div>
 
+      {(sale || offer) && offers.length > 0 && (
+        <div className="category-tabs sale-tabs">
+          <Link href="/shop?sale=1" className={sale ? "active" : ""}>
+            All on sale
+          </Link>
+          {offers.map((o) => (
+            <Link key={o.id} href={`/shop?offer=${o.id}`} className={offer?.id === o.id ? "active" : ""}>
+              {o.name}
+            </Link>
+          ))}
+        </div>
+      )}
+
       <ShopFilters
+        extra={{ sale: sale ? "1" : undefined, offer: offer?.id }}
         category={category}
         q={q}
         gender={gender}

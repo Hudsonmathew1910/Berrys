@@ -2039,3 +2039,88 @@ button.rows-image:hover {
   gap: 6px;
   padding-bottom: 10px;
 }
+
+/* Website content: tick lists (home page sections) */
+.pick-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 6px 14px;
+  margin: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  background: #fff;
+}
+.pick-list legend {
+  padding: 0 6px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.pick-list label.check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
+
+/* ---- Website content: preview note ---- */
+.preview-note {
+  margin: -6px 0 0;
+}
+
+/* ---- Website content: home page preview (template in a frame) ---- */
+.content-preview {
+  position: fixed;
+  inset: 0;
+  z-index: 500;
+  display: flex;
+  flex-direction: column;
+  background: rgba(20, 30, 50, 0.55);
+}
+.content-preview-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  padding: 10px 16px;
+  background: var(--navy);
+  color: #fff;
+  font-size: 13px;
+}
+.content-preview-tools {
+  display: flex;
+  gap: 6px;
+}
+.content-preview-tools button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  background: transparent;
+  color: #fff;
+  font: inherit;
+  cursor: pointer;
+}
+.content-preview-tools button.on {
+  background: #fff;
+  color: var(--navy);
+}
+.content-preview-stage {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  padding: 14px;
+  overflow: hidden;
+}
+.content-preview-stage iframe {
+  width: 100%;
+  max-width: 1360px;
+  height: 100%;
+  border: 0;
+  background: #fff;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+}
+.content-preview-stage iframe.phone {
+  max-width: 390px;
+}

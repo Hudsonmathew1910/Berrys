@@ -628,38 +628,56 @@ export async function adjustStockAction(_: ActionResult, f: FormData) {
 
 // ---------------------------------------------------------------- content
 
-export async function saveContentAction(_: ActionResult, f: FormData) {
-  return run("content", async (staff) => {
-    const key = str(f, "key");
-    let value: Record<string, unknown>;
-    if (key === "banners") {
-      const cats = (await getCategories(false)).map((c) => c.name);
-      const items = [];
-      for (const i of [0, 1, 2]) {
-        const b = Object.fromEntries(bannerFields.map((k) => [k, str(f, `b${i}_${k}`).slice(0, 300)]));
-        if (b.category && !cats.includes(b.category))
-          return { error: `Banner ${i + 1}: choose a valid category.` };
-        if (b.image && !isAllowedImageUrl(b.image)) return { error: `Banner ${i + 1}: invalid image.` };
-        if (b.productId && !(await cat.getAdminProduct(b.productId))) {
-          return { error: `Banner ${i + 1}: that product no longer exists.` };
-        }
-        items.push(b);
-      }
-      value = { items };
-    } else if (key === "announcement") {
-      value = { items: [0, 1, 2].map((i) => str(f, `item${i}`).slice(0, 120)) };
-    } else if (key in contentDefaults) {
-      const fields = Object.keys(contentDefaults[key as ContentKey]);
-      value = Object.fromEntries(fields.map((k) => [k, str(f, k).slice(0, 1000)]));
-    } else if (key.startsWith("help:") && helpDefault(key.slice(5))) {
-      value = {
+/** One content block from its dashboard form, checked and trimmed (throws a message for the person). */
+async function contentFromForm(f: FormData): Promise<{ key: string; value: Record<string, unknown> }> {
+  const key = str(f, "key");
+  if (key === "banners") {
+    const cats = (await getCategories(false)).map((c) => c.name);
+    const items = [];
+    for (const i of [0, 1, 2]) {
+      const b = Object.fromEntries(bannerFields.map((k) => [k, str(f, `b${i}_${k}`).slice(0, 300)]));
+      if (b.category && !cats.includes(b.category))
+        throw new HttpError(400, `Banner ${i + 1}: choose a valid category.`);
+      if (b.image && !isAllowedImageUrl(b.image)) throw new HttpError(400, `Banner ${i + 1}: invalid image.`);
+      if (b.productId && !(await cat.getAdminProduct(b.productId)))
+        throw new HttpError(400, `Banner ${i + 1}: that product no longer exists.`);
+      items.push(b);
+    }
+    return { key, value: { items } };
+  }
+  if (key === "homeSections") {
+    const cats = new Set((await getCategories(false)).map((c) => c.name));
+    const offerIds = new Set((await cat.listOffers()).map((o) => o.id));
+    return {
+      key,
+      value: {
+        shelfCategories: [...new Set(f.getAll("shelfCategories").map(String))].filter((c) => cats.has(c)),
+        offers: [...new Set(f.getAll("offers").map(String))].filter((o) => offerIds.has(o)),
+        offersTitle: str(f, "offersTitle").slice(0, 80) || contentDefaults.homeSections.offersTitle,
+      },
+    };
+  }
+  if (key === "announcement")
+    return { key, value: { items: [0, 1, 2].map((i) => str(f, `item${i}`).slice(0, 120)) } };
+  if (key in contentDefaults) {
+    const fields = Object.keys(contentDefaults[key as ContentKey]);
+    return { key, value: Object.fromEntries(fields.map((k) => [k, str(f, k).slice(0, 1000)])) };
+  }
+  if (key.startsWith("help:") && helpDefault(key.slice(5)))
+    return {
+      key,
+      value: {
         title: str(f, "title").slice(0, 100),
         eyebrow: str(f, "eyebrow").slice(0, 60),
         body: str(f, "body").slice(0, 20000),
-      };
-    } else {
-      return { error: "Unknown content block." };
-    }
+      },
+    };
+  throw new HttpError(400, "Unknown content block.");
+}
+
+export async function saveContentAction(_: ActionResult, f: FormData) {
+  return run("content", async (staff) => {
+    const { key, value } = await contentFromForm(f);
     await saveContent(key, value, actorName(staff));
     await logActivity(actorName(staff), "Edited website content", key);
     revalidatePath("/", "layout");

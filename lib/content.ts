@@ -71,6 +71,15 @@ export const contentDefaults = {
     noteTitle: "Good things come in little sizes.",
     noteText: "Discover a wardrobe full of personality.",
   },
+  /**
+   * Which categories the home "Find their next favourite" shelf shows, and which offers the
+   * home Offers section shows. Empty = all (only shown / running ones ever appear).
+   */
+  homeSections: {
+    shelfCategories: [] as string[],
+    offers: [] as string[],
+    offersTitle: "Little prices, running now",
+  },
 };
 export type ContentKey = keyof typeof contentDefaults;
 export type Banner = (typeof contentDefaults)["banners"]["items"][number];

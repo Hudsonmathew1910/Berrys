@@ -74,6 +74,10 @@ export type ProductQuery = {
   size?: string;
   inStock?: boolean;
   ids?: string[];
+  /** Only products with a discount right now (own sale price or an offer). */
+  onSale?: boolean;
+  /** Only products covered by this live offer. */
+  offerId?: string;
   page?: number;
   perPage?: number;
 };
@@ -86,6 +90,12 @@ const sellingPrice = () =>
   sql`coalesce((select least(o.value, ${products.price}) from ${schema.offers} o
     where o.product_id = ${products.id} and o.active and o.starts_at <= now()
       and (o.ends_at is null or o.ends_at > now())), ${products.price})`;
+
+/** Offer "o" is running right now. */
+const liveOffer = sql`o.active and o.starts_at <= now() and (o.ends_at is null or o.ends_at > now())`;
+/** Offer "o" (category / store / product offer) covers the product. */
+const offerCovers = sql`(o.scope = 'all' or (o.scope = 'category' and ${products.category} = any(o.targets))
+  or (o.scope = 'product' and ${products.id} = any(o.targets)))`;
 
 /** Filtered, sorted, paginated catalogue — all done in the database, so it scales. */
 export async function queryProducts(q: ProductQuery) {
@@ -108,6 +118,18 @@ export async function queryProducts(q: ProductQuery) {
     );
   }
   if (q.ids) where.push(q.ids.length ? inArray(products.id, q.ids) : sql`false`);
+  if (q.onSale)
+    where.push(
+      sql`exists (select 1 from ${schema.offers} o where ${liveOffer} and (o.product_id = ${products.id}
+        or (o.product_id is null and ${offerCovers})))`,
+    );
+  if (q.offerId)
+    where.push(
+      /^[0-9a-f-]{36}$/i.test(q.offerId)
+        ? sql`exists (select 1 from ${schema.offers} o where o.id = ${q.offerId} and o.product_id is null
+            and ${liveOffer} and ${offerCovers} and not ${products.id} = any(o.excluded))`
+        : sql`false`,
+    );
   if (q.size) {
     where.push(
       sql`exists (select 1 from ${inventory} v where v.product_id = ${products.id} and v.size = ${q.size} and v.quantity > 0)`,
@@ -259,4 +281,50 @@ export async function cheapestPerCategory() {
       ),
   );
   return Object.fromEntries(list.map((p) => [p.category, p])) as Record<string, Product>;
+}
+
+/** Category / store / product offers running now, for the home page and the shop heading. */
+export async function liveOffers() {
+  const now = Date.now();
+  const rows = await getDb()
+    .select()
+    .from(schema.offers)
+    .where(
+      and(
+        sql`${schema.offers.productId} is null`,
+        eq(schema.offers.active, true),
+        sql`${schema.offers.startsAt} <= now()`,
+        sql`(${schema.offers.endsAt} is null or ${schema.offers.endsAt} > now())`,
+      ),
+    )
+    .orderBy(asc(schema.offers.endsAt));
+  return rows
+    .filter((o) => !o.endsAt || o.endsAt.getTime() > now)
+    .map((o) => ({
+      id: o.id,
+      name: o.name,
+      label: o.type === "percent" ? `${o.value}% off` : `₹${o.value.toLocaleString("en-IN")} off`,
+      covers:
+        o.scope === "all"
+          ? "Everything in the store"
+          : o.scope === "category"
+            ? o.targets.join(", ")
+            : `${o.targets.length} chosen piece${o.targets.length === 1 ? "" : "s"}`,
+      endsAt: o.endsAt ? o.endsAt.toISOString() : null,
+    }));
+}
+export type LiveOffer = Awaited<ReturnType<typeof liveOffers>>[number];
+
+/** Discounted products that can be bought (in stock), biggest discount first — for the home page. */
+export async function biggestDeals(limit = 8) {
+  const { products: list, total } = await queryProducts({ onSale: true, inStock: true, perPage: 48 });
+  const pct = (p: { price: number; originalPrice: number }) => 1 - p.price / p.originalPrice;
+  return {
+    products: list
+      .filter((p) => p.price < p.originalPrice)
+      .sort((a, b) => pct(b) - pct(a))
+      .slice(0, limit),
+    total,
+    upTo: Math.round(Math.max(0, ...list.map(pct)) * 100),
+  };
 }

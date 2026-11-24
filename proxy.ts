@@ -28,10 +28,12 @@ export function proxy(request: NextRequest) {
     "font-src 'self' data:",
     `img-src 'self' data: blob: ${supabase} https://lh3.googleusercontent.com https://*.razorpay.com https://www.gstatic.com`,
     `connect-src 'self' https://*.razorpay.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://www.google.com${isDev ? " ws: wss:" : ""}`,
-    "frame-src https://api.razorpay.com https://checkout.razorpay.com https://*.razorpay.com https://www.google.com https://recaptcha.google.com https://*.firebaseapp.com",
+    // 'self': the dashboard shows the home page template in a frame (Website content → Preview).
+    "frame-src 'self' https://api.razorpay.com https://checkout.razorpay.com https://*.razorpay.com https://www.google.com https://recaptcha.google.com https://*.firebaseapp.com",
     "worker-src 'self' blob:",
     "manifest-src 'self'",
-    "frame-ancestors 'none'",
+    // Only the dashboard's home page template may be framed, and only by this site.
+    request.nextUrl.pathname === "/content-preview" ? "frame-ancestors 'self'" : "frame-ancestors 'none'",
     "base-uri 'self'",
     "form-action 'self' https://accounts.google.com",
     "object-src 'none'",

@@ -6,7 +6,15 @@ import { ArrowUpRight, Lock, LogOut } from "lucide-react";
 import { newOrderCount } from "@/lib/admin/orders";
 import { pendingRequestCount } from "@/lib/admin/team";
 import { refundRequestCounts } from "@/lib/refunds";
-import { adminHref, adminPath, can, getDashboardContext, roleLabels, sectionAccess } from "@/lib/staff";
+import {
+  adminHref,
+  adminPath,
+  can,
+  getDashboardContext,
+  isOwnerMember,
+  roleLabels,
+  sectionAccess,
+} from "@/lib/staff";
 import { DashFrame } from "@/components/dashboard/dash-frame";
 import { DashNav, type NavItem } from "@/components/dashboard/dash-nav";
 import { SaveAllBar } from "@/components/dashboard/save-all-bar";
@@ -19,6 +27,68 @@ import "../dashboard.css";
 
 export const metadata: Metadata = { title: "Workspace — Berry’s", robots: { index: false, follow: false } };
 export const dynamic = "force-dynamic";
+
+/**
+ * Sidebar order for each kind of user — what they use most comes first. Sections a person
+ * can't open are hidden anyway; anything not listed keeps its place at the end.
+ */
+const navOrder: Record<"owner" | "admin" | "staff", string[]> = {
+  // The owner watches the business: sales, approvals, money, then the shop and the team.
+  owner: [
+    "overview",
+    "analytics",
+    "requests",
+    "orders",
+    "payments",
+    "customers",
+    "products",
+    "offers",
+    "stock",
+    "categories",
+    "content",
+    "team",
+    "settings",
+    "activity",
+    "errors",
+    "account",
+  ],
+  // Admins run the day: orders and approvals, the catalogue, then reports and admin areas.
+  admin: [
+    "overview",
+    "orders",
+    "requests",
+    "products",
+    "stock",
+    "offers",
+    "customers",
+    "payments",
+    "categories",
+    "analytics",
+    "content",
+    "team",
+    "activity",
+    "errors",
+    "settings",
+    "account",
+  ],
+  // Staff do the work: pack orders, keep products and stock right.
+  staff: [
+    "overview",
+    "orders",
+    "products",
+    "stock",
+    "categories",
+    "offers",
+    "customers",
+    "payments",
+    "analytics",
+    "content",
+    "requests",
+    "account",
+  ],
+};
+const inOrder = <T extends { key: string }>(items: T[], order: string[]) =>
+  [...items].sort((a, b) => (order.indexOf(a.key) + 1 || 99) - (order.indexOf(b.key) + 1 || 99));
 
 /**
  * The dashboard lives at /<ADMIN_PATH>. Every other single-segment address,
@@ -49,7 +119,8 @@ export default async function DashboardLayout({
   const needs = sectionAccess((await headers()).get("x-pathname") ?? "");
   if (needs && !can(staff, needs)) notFound();
 
-  const roleLabel = staff.role === "admin" ? "SHOP ADMIN" : "SHOP STAFF";
+  const owner = isOwnerMember(staff);
+  const roleLabel = owner ? "STORE OWNER" : staff.role === "admin" ? "SHOP ADMIN" : "SHOP STAFF";
   const seeOrders = can(staff, "orders");
   const approver = can(staff, "requests");
   const [pending, refundCounts, newOrders] = await Promise.all([
@@ -109,7 +180,13 @@ export default async function DashboardLayout({
               <img src="/images/berrys-logo-full.webp" alt="Berry’s" />
             </Link>
             <div className="dash-role">{roleLabel}</div>
-            <DashNav items={all.filter((i) => i.show)} base={adminHref()} />
+            <DashNav
+              items={inOrder(
+                all.filter((i) => i.show),
+                navOrder[owner ? "owner" : staff.role],
+              )}
+              base={adminHref()}
+            />
             <div className="dash-sidebar-bottom">
               <Link href="/" target="_blank">
                 <ArrowUpRight size={16} /> View shop

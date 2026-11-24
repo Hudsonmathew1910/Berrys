@@ -128,24 +128,36 @@ export function BannerEditor({
                   value={b.eyebrow}
                   maxLength={60}
                   placeholder={category.toUpperCase()}
+                  data-field={`b${i}_eyebrow`}
                   onChange={(e) => set(i, { eyebrow: e.target.value })}
                 />
               </label>
               <label>
                 Title
-                <input value={b.title} maxLength={80} onChange={(e) => set(i, { title: e.target.value })} />
+                <input
+                  value={b.title}
+                  maxLength={80}
+                  data-field={`b${i}_title`}
+                  onChange={(e) => set(i, { title: e.target.value })}
+                />
               </label>
               <label>
                 Title, second line (italic, optional)
                 <input
                   value={b.titleEm}
                   maxLength={80}
+                  data-field={`b${i}_titleEm`}
                   onChange={(e) => set(i, { titleEm: e.target.value })}
                 />
               </label>
               <label>
                 Text (optional)
-                <input value={b.text} maxLength={120} onChange={(e) => set(i, { text: e.target.value })} />
+                <input
+                  value={b.text}
+                  maxLength={120}
+                  data-field={`b${i}_text`}
+                  onChange={(e) => set(i, { text: e.target.value })}
+                />
               </label>
               <label>
                 Button text
@@ -153,6 +165,7 @@ export function BannerEditor({
                   value={b.cta}
                   maxLength={40}
                   placeholder={`Shop ${category.toLowerCase()}`}
+                  data-field={`b${i}_cta`}
                   onChange={(e) => set(i, { cta: e.target.value })}
                 />
               </label>

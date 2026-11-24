@@ -9,7 +9,6 @@ const isDev = process.env.NODE_ENV !== "production";
 const securityHeaders = [
   { key: "X-Content-Type-Options", value: "nosniff" },
   { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
-  { key: "X-Frame-Options", value: "DENY" },
   {
     key: "Permissions-Policy",
     value:
@@ -38,6 +37,10 @@ const nextConfig: NextConfig = {
   async headers() {
     return [
       { source: "/(.*)", headers: securityHeaders },
+      // No site page may be shown inside a frame (clickjacking) — except the home page template,
+      // which the dashboard's Website content preview shows in a frame on this same site.
+      { source: "/((?!content-preview$).*)", headers: [{ key: "X-Frame-Options", value: "DENY" }] },
+      { source: "/content-preview", headers: [{ key: "X-Frame-Options", value: "SAMEORIGIN" }] },
       {
         // API responses: never cached by shared caches, never rendered as a page.
         source: "/api/(.*)",

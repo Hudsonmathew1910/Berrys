@@ -2182,3 +2182,147 @@ html {
 .offer-note .offer-ends {
   font-size: inherit;
 }
+
+/* ---- Home: offers running now ---- */
+.home-offers {
+  display: grid;
+  gap: 18px;
+}
+.offer-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 14px;
+}
+.offer-tile {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  padding: 18px 20px;
+  background: #fffefa;
+  color: var(--navy);
+  text-decoration: none;
+  border: 1px solid #e5e4dd;
+  border-top: 3px solid var(--navy);
+  transition:
+    transform 0.2s,
+    box-shadow 0.2s;
+}
+.offer-tile:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 24px rgba(24, 49, 71, 0.1);
+}
+.offer-tile-amount {
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.5px;
+  color: var(--navy);
+}
+.offer-tile b {
+  font-size: 15px;
+}
+.offer-tile small {
+  font-size: 12px;
+  color: var(--muted);
+}
+.offer-tile .offer-ends {
+  color: var(--navy);
+  font-weight: 600;
+}
+.offer-tile-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+}
+.home-subheading {
+  margin: 10px 0 0;
+  font-size: 20px;
+  color: var(--navy);
+}
+
+/* ---- Shop: "On sale" tab and offer tabs ---- */
+.category-tabs .sale-tab {
+  color: #a5503f;
+  font-weight: 600;
+}
+.category-tabs.sale-tabs {
+  margin-top: -14px;
+}
+@media (max-width: 560px) {
+  .offer-strip {
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+  .offer-tile {
+    padding: 14px;
+  }
+  .offer-tile-amount {
+    font-size: 20px;
+  }
+}
+
+/* Dashboard-style tick lists are in dashboard.css */
+
+/* ---- Home page template (dashboard preview): placeholders and editable text ---- */
+.tpl-root * {
+  cursor: default;
+}
+.tpl-box {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-height: 60px;
+  background: repeating-linear-gradient(135deg, #ecebe5 0 12px, #e4e3dc 12px 24px);
+}
+.tpl-product .product-image {
+  aspect-ratio: 3 / 4;
+}
+.tpl-product .tpl-photo {
+  height: 100%;
+}
+.tpl-line {
+  display: block;
+  height: 10px;
+  margin: 8px 0 0;
+  width: 70%;
+  background: #e4e3dc;
+}
+.tpl-line.short {
+  width: 35%;
+  height: 8px;
+}
+.tpl-line.price {
+  width: 40%;
+}
+.tpl-edit {
+  cursor: text !important;
+  outline: 1.5px dashed rgba(199, 154, 42, 0.8);
+  outline-offset: 2px;
+  /* inline, so small labels and headings keep their normal line layout */
+  display: inline;
+  white-space: pre-wrap;
+}
+.tpl-edit:empty::before {
+  content: "Click to add text";
+  opacity: 0.45;
+  font-style: italic;
+}
+.tpl-edit:hover,
+.tpl-edit:focus {
+  outline: 2px solid #c79a2a;
+  background: rgba(255, 246, 214, 0.6);
+}
+.tpl-footer-link {
+  display: block;
+}
+
+/* Template: the banners' small labels stay on one line, as on the site */
+.tpl-root .banner-copy .eyebrow,
+.tpl-root .banner-copy .eyebrow .tpl-edit {
+  white-space: nowrap;
+  width: max-content;
+  max-width: 100%;
+}

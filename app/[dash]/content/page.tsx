@@ -2,7 +2,8 @@ import Link from "next/link";
 import { ArrowUpRight } from "lucide-react";
 import { getCategories } from "@/lib/categories";
 import { contentDefaults, getContent, getHelpPage } from "@/lib/content";
-import { listAdminProducts } from "@/lib/admin/catalog";
+import { ContentPreview } from "@/components/dashboard/content-preview";
+import { listAdminProducts, listOffers } from "@/lib/admin/catalog";
 import { helpPages } from "@/lib/help-pages";
 import { requirePage } from "@/lib/staff";
 import { ActionForm } from "@/components/dashboard/action-form";
@@ -33,7 +34,7 @@ function Reset({ k }: { k: string }) {
 
 export default async function ContentPage() {
   await requirePage("content");
-  const [announcement, home, footer, help, banners, cats, products] = await Promise.all([
+  const [announcement, home, footer, help, banners, cats, products, sections, offers] = await Promise.all([
     getContent("announcement"),
     getContent("home"),
     getContent("footer"),
@@ -41,7 +42,12 @@ export default async function ContentPage() {
     getContent("banners"),
     getCategories(),
     listAdminProducts({ status: "active", page: 1, perPage: 500 }),
+    getContent("homeSections"),
+    listOffers(),
   ]);
+  const now = new Date();
+  const offerState = (o: { active: boolean; startsAt: Date; endsAt: Date | null }) =>
+    !o.active ? "off" : o.startsAt > now ? "scheduled" : o.endsAt && o.endsAt <= now ? "ended" : "live";
   const blocks = [
     ["home", "Home page", home],
     ["footer", "Footer", footer],
@@ -54,10 +60,17 @@ export default async function ContentPage() {
           <h1>Website content</h1>
           <span className="muted">Changes appear on the website as soon as you save.</span>
         </div>
-        <Link className="outline" href="/" target="_blank">
-          View website <ArrowUpRight size={14} />
-        </Link>
+        <span className="button-row">
+          <ContentPreview />
+          <Link className="outline" href="/" target="_blank">
+            View website <ArrowUpRight size={14} />
+          </Link>
+        </span>
       </div>
+      <p className="muted preview-note">
+        <b>Preview</b> shows the home page template with what’s on this page right now — saved or not. It
+        updates as you type, and you can click text in it to edit. Nothing is published until you save.
+      </p>
       <div className="dash-grid">
         <section className="dash-panel wide">
           <h2>Home page banners</h2>
@@ -76,6 +89,52 @@ export default async function ContentPage() {
             }))}
           />
           <Reset k="banners" />
+        </section>
+
+        <section className="dash-panel wide" id="home-sections">
+          <h2>Home page sections</h2>
+          <p className="muted">
+            Tick what to show. Nothing ticked = show all. Hidden categories and offers that aren’t running are
+            never shown, even if ticked.
+          </p>
+          <ActionForm action={saveContentAction} saveAll>
+            <input type="hidden" name="key" value="homeSections" />
+            <fieldset className="pick-list">
+              <legend>“{home.shelfTitle}” — categories</legend>
+              {cats.map((c) => (
+                <label key={c.id} className="check">
+                  <input
+                    type="checkbox"
+                    name="shelfCategories"
+                    value={c.name}
+                    defaultChecked={sections.shelfCategories.includes(c.name)}
+                  />{" "}
+                  {c.name}
+                </label>
+              ))}
+            </fieldset>
+            <label>
+              Offers section — title
+              <input name="offersTitle" maxLength={80} defaultValue={sections.offersTitle} />
+            </label>
+            <fieldset className="pick-list">
+              <legend>Offers section — offers</legend>
+              {offers.map((o) => (
+                <label key={o.id} className="check">
+                  <input
+                    type="checkbox"
+                    name="offers"
+                    value={o.id}
+                    defaultChecked={sections.offers.includes(o.id)}
+                  />{" "}
+                  {o.name} <small className="muted">· {offerState(o)}</small>
+                </label>
+              ))}
+              {!offers.length && <small className="muted">No offers yet — create them under Offers.</small>}
+            </fieldset>
+            <button className="primary">Save</button>
+          </ActionForm>
+          <Reset k="homeSections" />
         </section>
 
         <section className="dash-panel wide">

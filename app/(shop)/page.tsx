@@ -1,9 +1,15 @@
 import Link from "next/link";
 import { ArrowRight, ArrowUpRight, Package } from "lucide-react";
-import { money } from "@/lib/catalog";
+import { money, offerEndsText } from "@/lib/catalog";
 import { getCategories } from "@/lib/categories";
 import { getContent } from "@/lib/content";
-import { categoryCounts, cheapestPerCategory, queryProducts } from "@/lib/store-data";
+import {
+  biggestDeals,
+  categoryCounts,
+  cheapestPerCategory,
+  liveOffers,
+  queryProducts,
+} from "@/lib/store-data";
 import { ProductCard } from "@/components/shop/product-card";
 
 export const dynamic = "force-dynamic";
@@ -11,19 +17,28 @@ export const dynamic = "force-dynamic";
 const shopHref = (c: string) => (c === "All pieces" ? "/shop" : `/shop?category=${encodeURIComponent(c)}`);
 
 export default async function HomePage() {
-  const [catList, text, bannerText] = await Promise.all([
+  const [catList, text, bannerText, sections] = await Promise.all([
     getCategories(),
     getContent("home"),
     getContent("banners"),
+    getContent("homeSections"),
   ]);
   const cats = catList.map((c) => c.name);
-  const categories = ["All pieces", ...cats];
-  const [newIn, counts, first] = await Promise.all([
+  // Website content → Home page sections: the chosen categories (all when none chosen).
+  const shelf = sections.shelfCategories.length
+    ? cats.filter((c) => sections.shelfCategories.includes(c))
+    : cats;
+  const categories = ["All pieces", ...shelf];
+  const [newIn, counts, first, running, deals] = await Promise.all([
     queryProducts({ sort: "new", perPage: 8 }),
     categoryCounts(),
     cheapestPerCategory(),
+    liveOffers(),
+    biggestDeals(8),
   ]);
   const total = Object.values(counts).reduce((a, n) => a + n, 0);
+  // The chosen offers (all running ones when none chosen).
+  const offers = sections.offers.length ? running.filter((o) => sections.offers.includes(o.id)) : running;
 
   // Featured banners (Dashboard → Website content). Blank category = the
   // category in that position; photo = uploaded image, else chosen product, else first product.
@@ -119,10 +134,49 @@ export default async function HomePage() {
         </section>
       </div>
 
+      {(offers.length > 0 || deals.products.length > 0) && (
+        <section className="page-section home-offers" aria-labelledby="offers-title">
+          <div className="section-heading">
+            <div>
+              <div className="eyebrow">OFFERS</div>
+              <h2 id="offers-title">{sections.offersTitle}</h2>
+            </div>
+            <Link className="text-link" href="/shop?sale=1">
+              Everything on sale <ArrowRight size={16} />
+            </Link>
+          </div>
+          {offers.length > 0 && (
+            <div className="offer-strip">
+              {offers.map((o) => (
+                <Link key={o.id} className="offer-tile" href={`/shop?offer=${o.id}`}>
+                  <span className="offer-tile-amount">{o.label}</span>
+                  <b>{o.name}</b>
+                  <small>{o.covers}</small>
+                  {o.endsAt && <small className="offer-ends">{offerEndsText(o.endsAt)}</small>}
+                  <span className="offer-tile-cta">
+                    Shop the offer <ArrowRight size={14} />
+                  </span>
+                </Link>
+              ))}
+            </div>
+          )}
+          {deals.products.length > 0 && (
+            <>
+              <h3 className="home-subheading">On sale now</h3>
+              <div className="product-grid">
+                {deals.products.map((p) => (
+                  <ProductCard key={p.id} product={p} />
+                ))}
+              </div>
+            </>
+          )}
+        </section>
+      )}
+
       <section className="collection page-section">
         <div className="section-heading">
           <div>
-            <div className="eyebrow">JUST LANDED</div>
+            <div className="eyebrow">NEW ARRIVALS</div>
             <h2>{text.newInTitle}</h2>
           </div>
           <Link className="text-link" href="/shop?sort=new">
