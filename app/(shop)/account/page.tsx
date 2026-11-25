@@ -4,10 +4,8 @@ import { ArrowRight, ShoppingBag } from "lucide-react";
 import { listAddresses } from "@/lib/addresses";
 import { requireViewerPage } from "@/lib/auth-page";
 import { money } from "@/lib/catalog";
-import { firebaseConfig } from "@/lib/firebase-verify";
 import { statusLabels } from "@/lib/order-status";
 import { refundStatusLabels } from "@/lib/refunds";
-import { formatIndianMobile } from "@/lib/phone";
 import { getSettings, shippingRule } from "@/lib/settings";
 import { ordersForUser } from "@/lib/store-data";
 import { AddressesManager } from "@/components/shop/addresses-manager";
@@ -21,7 +19,6 @@ export const dynamic = "force-dynamic";
 /** Everything about the account on one page; the side menu scrolls to each section. */
 export default async function AccountPage() {
   const viewer = await requireViewerPage("/account");
-  const phoneLogin = !!firebaseConfig();
   const [orders, addresses, settings] = await Promise.all([
     ordersForUser(viewer.userId),
     listAddresses(viewer.userId),
@@ -48,20 +45,6 @@ export default async function AccountPage() {
                   )}
                 </dd>
               </div>
-              {(phoneLogin || viewer.phone) && (
-                <div>
-                  <dt>Verified mobile</dt>
-                  <dd>
-                    {viewer.phone ? (
-                      formatIndianMobile(viewer.phone)
-                    ) : (
-                      <Link className="text-link" href="/login?link=1&next=/account">
-                        Verify mobile number
-                      </Link>
-                    )}
-                  </dd>
-                </div>
-              )}
               <div>
                 <dt>Orders</dt>
                 <dd>{orders.length}</dd>

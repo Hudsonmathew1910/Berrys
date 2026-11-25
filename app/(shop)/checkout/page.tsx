@@ -3,7 +3,6 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { listAddresses } from "@/lib/addresses";
 import { getViewer } from "@/lib/auth";
-import { firebaseConfig } from "@/lib/firebase-verify";
 import { CheckoutView } from "@/components/shop/checkout-view";
 import { paymentState } from "@/lib/orders";
 import { getSettings, shippingRule } from "@/lib/settings";
@@ -14,8 +13,8 @@ export const dynamic = "force-dynamic";
 export default async function CheckoutPage() {
   const viewer = await getViewer();
   if (!viewer) redirect("/login?next=/checkout");
-  // Buying needs a Google email (and a verified mobile when mobile login is on).
-  if (!viewer.email || (firebaseConfig() && !viewer.phone)) redirect("/login?link=1&next=/checkout");
+  // Buying needs an email on the account (older mobile-only accounts link Google first).
+  if (!viewer.email) redirect("/login?link=1&next=/checkout");
   const [addresses, settings, payment] = await Promise.all([
     listAddresses(viewer.userId),
     getSettings(),

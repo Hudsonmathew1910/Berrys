@@ -14,9 +14,6 @@ export type GoogleProfile = {
   picture: string;
 };
 
-/** An account is complete once both a Google account and a mobile number are linked. */
-export const isComplete = (u: Pick<User, "googleSub" | "phone">) => !!(u.googleSub && u.phone);
-
 /**
  * Folds `drop` into `keep`: moves its orders and addresses across, deletes
  * it, then applies `patch` (the identity fields keep is taking over).
@@ -98,23 +95,6 @@ export async function loginWithEmail(rawEmail: string): Promise<User> {
   });
 }
 
-/** Log in (or sign up) with a verified mobile number. */
-export async function loginWithPhone(phone: string): Promise<User> {
-  return getDb().transaction(async (tx) => {
-    const [existing] = await tx.select().from(users).where(eq(users.phone, phone)).for("update");
-    if (existing) {
-      const [u] = await tx
-        .update(users)
-        .set({ lastLoginAt: new Date() })
-        .where(eq(users.id, existing.id))
-        .returning();
-      return u;
-    }
-    const [created] = await tx.insert(users).values({ phone }).returning();
-    return created;
-  });
-}
-
 /** Adds a Google account to the logged-in user, merging a separate Google-only account if one exists. */
 export async function linkGoogle(userId: string, p: GoogleProfile): Promise<User> {
   return getDb().transaction(async (tx) => {
@@ -138,34 +118,5 @@ export async function linkGoogle(userId: string, p: GoogleProfile): Promise<User
       throw new HttpError(409, "This Google account is already linked to a different mobile number.");
     }
     return mergeInto(tx, me, other, { ...googleFields(p, me), phone: me.phone || other.phone });
-  });
-}
-
-/** Adds a verified mobile number to the logged-in user, merging a separate mobile-only account if one exists. */
-export async function linkPhone(userId: string, phone: string): Promise<User> {
-  return getDb().transaction(async (tx) => {
-    const [me] = await tx.select().from(users).where(eq(users.id, userId)).for("update");
-    if (!me) throw new HttpError(401, "Please log in again.");
-    if (me.phone === phone) return me;
-    if (me.phone) throw new HttpError(409, "Your account already has a different mobile number.");
-    const [other] = await tx
-      .select()
-      .from(users)
-      .where(and(ne(users.id, me.id), eq(users.phone, phone)))
-      .for("update");
-    if (!other) {
-      const [u] = await tx.update(users).set({ phone }).where(eq(users.id, me.id)).returning();
-      return u;
-    }
-    if (other.googleSub && me.googleSub && other.googleSub !== me.googleSub) {
-      throw new HttpError(409, "This mobile number is already linked to a different Google account.");
-    }
-    return mergeInto(tx, me, other, {
-      phone,
-      googleSub: me.googleSub || other.googleSub,
-      email: me.email || other.email,
-      name: me.name || other.name,
-      avatarUrl: me.avatarUrl || other.avatarUrl,
-    });
   });
 }

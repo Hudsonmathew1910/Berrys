@@ -26,10 +26,10 @@ export function proxy(request: NextRequest) {
     // Inline style attributes are used for charts and colour swatches.
     "style-src 'self' 'unsafe-inline'",
     "font-src 'self' data:",
-    `img-src 'self' data: blob: ${supabase} https://lh3.googleusercontent.com https://*.razorpay.com https://www.gstatic.com`,
-    `connect-src 'self' https://*.razorpay.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://www.google.com${isDev ? " ws: wss:" : ""}`,
+    `img-src 'self' data: blob: ${supabase} https://lh3.googleusercontent.com https://*.razorpay.com`,
+    `connect-src 'self' https://*.razorpay.com${isDev ? " ws: wss:" : ""}`,
     // 'self': the dashboard shows the home page template in a frame (Website content → Preview).
-    "frame-src 'self' https://api.razorpay.com https://checkout.razorpay.com https://*.razorpay.com https://www.google.com https://recaptcha.google.com https://*.firebaseapp.com",
+    "frame-src 'self' https://api.razorpay.com https://checkout.razorpay.com https://*.razorpay.com",
     "worker-src 'self' blob:",
     "manifest-src 'self'",
     // Only the dashboard's home page template may be framed, and only by this site.

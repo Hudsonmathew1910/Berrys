@@ -4,16 +4,15 @@ An online store for Berry’s children’s clothing: a storefront with search, f
 
 ## Stack
 
-| Layer     | Choice                                                                          |
-| --------- | ------------------------------------------------------------------------------- |
-| Framework | Next.js 16 (App Router), React 19, TypeScript                                   |
-| Database  | Supabase Postgres, accessed with Drizzle ORM (`db/`, migrations in `drizzle/`)  |
-| Auth      | Own accounts: Google login + mobile OTP, linked to one account (`lib/users.ts`) |
-| Images    | Supabase Storage, public `product-images` bucket                                |
-| Payments  | Razorpay Standard Checkout + webhook                                            |
-| SMS OTP   | Firebase Phone Authentication (real SMS, verified on our server)                |
-| Email     | Resend (optional) for order confirmation emails to customers                    |
-| Styling   | Hand-written CSS in `app/globals.css`, Tailwind 4 + shadcn/ui available         |
+| Layer     | Choice                                                                         |
+| --------- | ------------------------------------------------------------------------------ |
+| Framework | Next.js 16 (App Router), React 19, TypeScript                                  |
+| Database  | Supabase Postgres, accessed with Drizzle ORM (`db/`, migrations in `drizzle/`) |
+| Auth      | Own accounts: Google login (`lib/users.ts`)                                    |
+| Images    | Supabase Storage, public `product-images` bucket                               |
+| Payments  | Razorpay Standard Checkout + webhook                                           |
+| Email     | Resend (optional) for order confirmation emails to customers                   |
+| Styling   | Hand-written CSS in `app/globals.css`, Tailwind 4 + shadcn/ui available        |
 
 ## First-time setup
 
@@ -57,10 +56,9 @@ Entering takes two steps: log in to the site with Google, then enter your **dash
 
 One **Login / sign up** page (`/login`); new visitors get an account automatically.
 
-- Customers log in with **Google** _or_ their **mobile number** (real SMS code). Either one is enough to log in, see orders and save favourites.
-- **To buy, both are required.** At checkout the bag asks the customer to link the missing one (Google account or mobile number); the order then uses the verified email and number.
-- Customers can also link the other method any time from **My account**. If someone had made two separate accounts (one per method), linking merges them, keeping all orders.
-- A number or Google account that already belongs to another account can't be linked.
+- Customers log in with **Google** (or with an emailed code, when turned on in Dashboard → Settings → Emails).
+- The mobile number for delivery is typed in My account or at checkout; it isn't verified by SMS.
+- Admins and staff need no mobile number for the dashboard.
 - The store owner logs in with the Google account set in `STORE_OWNER_EMAIL`.
 - Sessions are random tokens in an `httpOnly` cookie (30 days); only a SHA-256 hash is stored.
 
@@ -74,21 +72,6 @@ One **Login / sign up** page (`/login`); new visitors get an account automatical
 4. **Audience → Publish app** so anyone can log in (in Testing, only listed test users can).
 
 Note: Windows/system environment variables override `.env`. If login sends an old client ID, remove old `GOOGLE_CLIENT_*` variables from the system environment.
-
-### Mobile OTP setup (Firebase Phone Authentication)
-
-**Currently switched off** (`PHONE_LOGIN_ENABLED=false`): customers log in with Google, and checkout asks for a mobile number in a normal field. After the steps below, set `PHONE_LOGIN_ENABLED=true` to turn on mobile login and require a verified mobile to buy.
-
-Firebase sends a real SMS code; no DLT registration or business documents are needed.
-
-1. [Firebase console](https://console.firebase.google.com/) → **Add project** (you can pick the existing Google Cloud project).
-2. **Build → Authentication → Get started → Sign-in method → Phone → Enable.**
-3. **Authentication → Settings → Authorized domains:** add the live domain (`localhost` is there by default).
-4. **Project settings → General → Your apps → Add app → Web**, then copy `apiKey` and `projectId` into `FIREBASE_API_KEY` / `FIREBASE_PROJECT_ID`.
-5. **Upgrade to the Blaze plan** (a card is needed). Phone sign-in requires it; the first **10 SMS per day are free**, then Google charges per SMS (about $0.07 for India).
-6. To test without spending SMS: **Sign-in method → Phone → Phone numbers for testing** — add a number with a fixed code.
-
-Firebase protects SMS sending with an invisible reCAPTCHA; our server also rate-limits phone logins and checks Firebase's signed proof of the number.
 
 ## How checkout works
 
@@ -179,7 +162,7 @@ and expired sessions, exposed files and secrets in pages or browser scripts. Git
 | Audit         | Every dashboard change is in the activity log; order history and stock movements are recorded.                                                                                                                                                                                                                                                               |
 | Dependencies  | Unused packages removed; `npm audit --omit=dev` is clean. (4 moderate advisories remain in drizzle-kit's bundled esbuild — a local migration tool, never deployed.)                                                                                                                                                                                          |
 
-**Not needed here:** CAPTCHA — there are no anonymous write forms (every order/address/profile action requires a Google login; mobile OTP, when enabled, uses Firebase's built-in reCAPTCHA).
+**Not needed here:** CAPTCHA — there are no anonymous write forms (every order/address/profile action requires a Google login).
 
 **Recommended in the hosting dashboards:**
 
@@ -205,7 +188,7 @@ and expired sessions, exposed files and secrets in pages or browser scripts. Git
 ## Deploying (e.g. Vercel)
 
 1. Import the repo and add every variable from `.env.example` (use `DATABASE_POOL_MAX=3` on Vercel).
-2. Set `SITE_URL` to the live domain, add `https://<domain>/auth/google/callback` to the Google OAuth client, and add the domain to Firebase's authorized domains.
+2. Set `SITE_URL` to the live domain, add `https://<domain>/auth/google/callback` to the Google OAuth client.
 3. In Razorpay, add the webhook `https://<domain>/api/webhooks/razorpay` with events `payment.captured` and `order.paid`.
 4. Run `npm run db:migrate` against production once.
 
@@ -216,7 +199,7 @@ and expired sessions, exposed files and secrets in pages or browser scripts. Git
 - Write the real size guide, shipping & returns policy and contact details (`components/store/info-modal.tsx`), and add privacy/terms pages (Razorpay requires them for live activation).
 - Complete Razorpay KYC and switch to `rzp_live_` keys.
 - Set shipping fees if you charge them (`NEXT_PUBLIC_SHIPPING_FEE`, `NEXT_PUBLIC_FREE_SHIPPING_ABOVE`).
-- Publish the Google OAuth app; put the Firebase project on the Blaze plan for mobile OTP.
+- Publish the Google OAuth app.
 - Order confirmation emails: either Gmail SMTP with an App password (`SMTP_USER`, `SMTP_PASS`; free, no domain) or Resend with a verified domain (`RESEND_API_KEY`, `ORDER_EMAIL_FROM`).
 - Make sure `PAYMENT_MODE` is **not** set in production (it is ignored there anyway).
-- Optional next steps: courier integration (e.g. Shiprocket) for labels and tracking, coupon codes, returns requests, GST invoices, CAPTCHA (e.g. Cloudflare Turnstile) on the mobile OTP form, product detail pages with their own URLs for SEO.
+- Optional next steps: courier integration (e.g. Shiprocket) for labels and tracking, coupon codes, returns requests, GST invoices, product detail pages with their own URLs for SEO.

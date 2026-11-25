@@ -1,7 +1,6 @@
 import { z } from "zod";
 import { formatAddress, getAddress, saveAddress } from "@/lib/addresses";
 import { getViewer } from "@/lib/auth";
-import { firebaseConfig } from "@/lib/firebase-verify";
 import { HttpError } from "@/lib/http-error";
 import { assertSameOrigin, handleError, json } from "@/lib/http";
 import { createPendingOrder, paymentState } from "@/lib/orders";
@@ -20,9 +19,8 @@ const bodySchema = z.object({
 
 /**
  * Step 1: reserve stock and create the Razorpay order the browser will pay.
- * Needs a logged-in account with a Google email (and a verified mobile when
- * mobile login is enabled). The order is addressed from a saved address or
- * a new one, optionally saved to the account.
+ * Needs a logged-in account with an email. The order is addressed from a
+ * saved address or a new one, optionally saved to the account.
  */
 export async function POST(request: Request) {
   try {
@@ -30,9 +28,6 @@ export async function POST(request: Request) {
     const viewer = await getViewer();
     if (!viewer) throw new HttpError(401, "Please log in to place your order.");
     if (!viewer.email) throw new HttpError(403, "Link your Google account to place an order.");
-    if (firebaseConfig() && !viewer.phone) {
-      throw new HttpError(403, "Verify your mobile number to place an order.");
-    }
     const [payment, settings] = await Promise.all([paymentState(), getSettings()]);
     if (settings.maintenance)
       throw new HttpError(503, "The shop is closed for maintenance. Please check back soon.");

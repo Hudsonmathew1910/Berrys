@@ -1,10 +1,8 @@
 "use client";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { ArrowLeft, LogOut } from "lucide-react";
 import { EmailSignIn } from "@/components/shop/email-sign-in";
 import { GoogleIcon } from "@/components/shop/google-icon";
-import { PhoneOtp, type FirebaseConfig } from "./phone-otp";
 
 type Props = {
   next: string;
@@ -12,18 +10,12 @@ type Props = {
   googleEnabled: boolean;
   /** "Continue with email" (Dashboard → Settings → Emails). */
   emailEnabled: boolean;
-  firebase: FirebaseConfig | null;
-  /** Set when a logged-in visitor must add the missing method (required before buying). */
-  viewer: { email: string | null; phone: string | null } | null;
+  /** Set when an older mobile-only account must link Google before buying (what it is logged in with). */
+  linkingFrom: string | null;
 };
 
-export function LoginForm({ next, error, googleEnabled, emailEnabled, firebase, viewer }: Props) {
-  const router = useRouter();
+export function LoginForm({ next, error, googleEnabled, emailEnabled, linkingFrom }: Props) {
   const googleHref = `/auth/google?next=${encodeURIComponent(next)}`;
-  const done = () => {
-    router.replace(next);
-    router.refresh();
-  };
 
   return (
     <div className="auth-page">
@@ -32,7 +24,7 @@ export function LoginForm({ next, error, googleEnabled, emailEnabled, firebase, 
           <img src="/images/berrys-mark.webp" alt="" />
         </span>
 
-        {!viewer ? (
+        {!linkingFrom ? (
           <>
             <div className="eyebrow">WELCOME TO BERRY’S</div>
             <h1>Login or sign up.</h1>
@@ -57,42 +49,27 @@ export function LoginForm({ next, error, googleEnabled, emailEnabled, firebase, 
                 <EmailSignIn next={next} />
               </>
             )}
-            {googleEnabled && firebase && (
-              <div className="auth-divider">
-                <span>or use your mobile number</span>
-              </div>
-            )}
-            {firebase && <PhoneOtp config={firebase} onVerified={done} />}
-            {!googleEnabled && !firebase && !emailEnabled && (
-              <p className="form-error">
-                Login isn’t configured yet. Add Google or Firebase settings to .env.
-              </p>
+            {!googleEnabled && !emailEnabled && (
+              <p className="form-error">Login isn’t configured yet. Add the Google settings to .env.</p>
             )}
           </>
         ) : (
           <>
             <div className="eyebrow">BEFORE YOU BUY</div>
-            <h1>{viewer.phone ? "Link your Google account." : "Verify your mobile number."}</h1>
+            <h1>Link your Google account.</h1>
             <p>
-              To place an order we need both your Google email and a verified mobile number, for order updates
-              and delivery.
+              To place an order we need your Google email, for order updates.
               <br />
-              {viewer.email ? `Logged in with Google as ${viewer.email}.` : `Logged in with ${viewer.phone}.`}
+              Logged in with {linkingFrom}.
             </p>
             {error && <p className="form-error">{error}</p>}
-            {viewer.phone ? (
-              googleEnabled ? (
-                <a className="google-btn" href={googleHref}>
-                  <GoogleIcon />
-                  Link Google account
-                </a>
-              ) : (
-                <p className="form-error">Google login isn’t configured yet.</p>
-              )
-            ) : firebase ? (
-              <PhoneOtp config={firebase} onVerified={done} />
+            {googleEnabled ? (
+              <a className="google-btn" href={googleHref}>
+                <GoogleIcon />
+                Link Google account
+              </a>
             ) : (
-              <p className="form-error">Mobile verification isn’t configured yet.</p>
+              <p className="form-error">Google login isn’t configured yet.</p>
             )}
             <form action="/auth/signout" method="post">
               <button className="text-link" type="submit">

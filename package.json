@@ -22,8 +22,6 @@
     "reset-admin-password": "node scripts/reset-admin-password.mjs"
   },
   "dependencies": {
-    "@firebase/app": "^0.16.5",
-    "@firebase/auth": "^1.13.9",
     "@supabase/supabase-js": "^2.118.0",
     "drizzle-orm": "^0.45.4",
     "jose": "^6.2.15",

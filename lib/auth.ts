@@ -3,7 +3,6 @@ import { cache } from "react";
 import { serverEnv } from "@/lib/env";
 import { HttpError } from "@/lib/http-error";
 import { getSessionUser } from "@/lib/session";
-import { isComplete } from "@/lib/users";
 
 export { HttpError };
 
@@ -15,8 +14,6 @@ export type Viewer = {
   avatarUrl: string;
   /** Unverified contact number from My account (E.164 or ""). */
   contactPhone: string;
-  /** Google account and mobile number are both linked. */
-  complete: boolean;
 } | null;
 
 /** The logged-in visitor (from the session cookie), or null. Looked up once per request. */
@@ -30,7 +27,6 @@ export const getViewer = cache(async (): Promise<Viewer> => {
     name: u.name,
     avatarUrl: u.avatarUrl,
     contactPhone: u.contactPhone,
-    complete: isComplete(u),
   };
 });
 
