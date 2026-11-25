@@ -1809,6 +1809,26 @@ html {
   align-items: center;
   gap: 6px;
   font-size: 13px;
+  min-width: 0;
+  overflow-wrap: anywhere; /* long email addresses wrap instead of running off the screen */
+}
+.footer-contact svg {
+  flex: none;
+}
+.footer-brand {
+  min-width: 0;
+}
+/* Phones: logo and tagline stay side by side; contact and social links get their own full-width rows. */
+@media (max-width: 600px) {
+  .site-footer .footer-brand {
+    flex-wrap: wrap;
+    row-gap: 4px;
+  }
+  .site-footer .footer-contact,
+  .site-footer .footer-social {
+    flex-basis: 100%;
+    margin-top: 6px;
+  }
 }
 .footer-social a {
   border: 1px solid rgba(255, 255, 255, 0.25);
