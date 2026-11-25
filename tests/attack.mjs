@@ -698,6 +698,192 @@ try {
     });
     check("…and pages don't put it back", !(res.headers.get("set-cookie") ?? "").includes(live));
   });
+
+  // ------------------------------------------------ 14. many requests at once (races and floods)
+  console.log("Many requests at once");
+  const person = async (email) => {
+    const [u] = await q(`insert into users (email, name) values ($1, 'Racer') returning id`, [email]);
+    const t = newToken();
+    await q(
+      `insert into sessions (token_hash, user_id, expires_at) values ($1, $2, now() + interval '1 hour')`,
+      [h(t), u.id],
+    );
+    return { id: u.id, tok: t };
+  };
+  // Each parallel request comes from its own address, so only the per-account limits apply.
+  const burst = (n, fn) =>
+    Promise.all(Array.from({ length: n }, (_, i) => fn(i, `10.9.${section}.${i + 1}`)));
+  const callFrom = (fromIp, path, opts) => {
+    const saved = ip;
+    ip = fromIp;
+    const p = call(path, opts);
+    ip = saved;
+    return p;
+  };
+
+  await step("flood", async () => {
+    const t0 = Date.now();
+    const res = await burst(300, (i, from) =>
+      callFrom(from, i % 2 ? "/" : "/api/products?ids=e2e-stock-tee"),
+    );
+    const s5 = res.filter((r) => r.status >= 500).length;
+    check(
+      "300 requests at once: no server errors",
+      s5 === 0,
+      `${s5} errors, ${((Date.now() - t0) / 1000).toFixed(1)}s`,
+    );
+    check("…and the site still answers normally afterwards", (await call("/")).status === 200);
+    const prod = await Promise.all(
+      Array.from({ length: 150 }, () => call("/api/products?ids=e2e-stock-tee")),
+    );
+    check(
+      "150 product requests from one address get rate-limited",
+      prod.some((r) => r.status === 429) && !prod.some((r) => r.status >= 500),
+      `${prod.filter((r) => r.status === 429).length} limited`,
+    );
+  });
+
+  await step("last-item race", async () => {
+    await q(
+      `insert into products (id, name, category, price, image, images, color, active) values ('race-tee', 'Race Tee', (select name from categories order by sort_order limit 1), 500, '/images/product-1.webp', '{/images/product-1.webp}', '#112233', true)`,
+    );
+    await q(`insert into inventory values ('race-tee', $1, 1)`, [size]);
+    const buyers = await Promise.all(Array.from({ length: 20 }, (_, i) => person(`race${i}@example.test`)));
+    const res = await burst(20, (i, from) =>
+      callFrom(from, "/api/checkout", {
+        as: buyers[i].tok,
+        method: "POST",
+        body: { items: [{ productId: "race-tee", size, quantity: 1 }], address },
+      }),
+    );
+    const won = res.filter((r) => r.status === 200).length;
+    const stock = await one(`select quantity from inventory where product_id = 'race-tee'`);
+    const reserved = await one(
+      `select coalesce(sum(i.quantity), 0)::int n from order_items i join orders o on o.id = i.order_id where i.product_id = 'race-tee' and o.status in ('pending_payment','paid')`,
+    );
+    check(
+      "20 people buy the last piece at once: exactly 1 gets it",
+      won === 1 && stock.quantity === 0 && reserved.n === 1,
+      `${won} orders, stock ${stock.quantity}, reserved ${reserved.n}`,
+    );
+    check("…the others are told it's sold out, nothing crashes", !res.some((r) => r.status >= 500));
+  });
+
+  await step("one account, many checkouts", async () => {
+    const R = await person("spammer@example.test");
+    await q(`update inventory set quantity = 50 where product_id = 'race-tee'`);
+    const res = await burst(30, (_, from) =>
+      callFrom(from, "/api/checkout", {
+        as: R.tok,
+        method: "POST",
+        body: { items: [{ productId: "race-tee", size, quantity: 1 }], address },
+      }),
+    );
+    const made = await one(`select count(*)::int n from orders where user_id = $1`, [R.id]);
+    check(
+      "30 checkouts at once from one account: capped at 10",
+      made.n <= 10 && res.filter((r) => r.status === 429).length >= 20,
+      `${made.n} orders`,
+    );
+    const stock = await one(`select quantity from inventory where product_id = 'race-tee'`);
+    check("…and stock adds up exactly", stock.quantity === 50 - made.n, `stock ${stock.quantity}`);
+  });
+
+  await step("double payment", async () => {
+    const C = await person("payer@example.test");
+    const o = (await checkout(C.tok, [{ productId: "e2e-stock-tee", size, quantity: 1 }])).json;
+    const before = await one(
+      `select quantity from inventory where product_id = 'e2e-stock-tee' and size = $1`,
+      [size],
+    );
+    const body = JSON.stringify({
+      event: "payment.captured",
+      payload: { payment: { entity: { id: "pay_race", order_id: o.razorpay.orderId } } },
+    });
+    const sig = crypto.createHmac("sha256", WEBHOOK_SECRET).update(body).digest("hex");
+    const res = await burst(20, (i, from) =>
+      i % 2
+        ? callFrom(from, "/api/webhooks/razorpay", {
+            method: "POST",
+            origin: "",
+            raw: body,
+            headers: { "content-type": "application/json", "x-razorpay-signature": sig },
+          })
+        : callFrom(from, "/api/checkout/mock-pay", {
+            as: C.tok,
+            method: "POST",
+            body: { orderId: o.orderId, razorpayOrderId: o.razorpay.orderId },
+          }),
+    );
+    const paid = await one(
+      `select count(*)::int n from order_events where order_id = $1 and status = 'paid'`,
+      [o.orderId],
+    );
+    const after = await one(
+      `select quantity from inventory where product_id = 'e2e-stock-tee' and size = $1`,
+      [size],
+    );
+    check(
+      "20 payment confirmations at once: order paid exactly once",
+      paid.n === 1 && (await one(`select status from orders where id = $1`, [o.orderId])).status === "paid",
+      `${paid.n} paid events`,
+    );
+    check(
+      "…stock isn't taken twice",
+      after.quantity === before.quantity,
+      `${before.quantity} → ${after.quantity}`,
+    );
+    check("…nothing crashes", !res.some((r) => r.status >= 500));
+  });
+
+  await step("double refund", async () => {
+    const D = await person("refunder@example.test");
+    await q(
+      `insert into orders (id, user_id, customer, email, phone, address, pincode, subtotal, total, status, expires_at, paid_at, razorpay_payment_id)
+       values ('BRY-RACE', $1, 'Racer', 'refunder@example.test', '9876543210', '1 Test Road', '682001', 400, 400, 'paid', now(), now(), 'pay_race_refund')`,
+      [D.id],
+    );
+    await q(
+      `insert into order_items (order_id, product_id, name, category, size, quantity, price) values ('BRY-RACE', 'e2e-stock-tee', 'E2E Stock Tee', 'x', $1, 1, 400)`,
+      [size],
+    );
+    const res = await burst(10, (_, from) =>
+      callFrom(from, "/api/account/refunds", {
+        as: D.tok,
+        method: "POST",
+        body: { orderId: "BRY-RACE", wholeOrder: true, items: [], reason: "Wrong size", details: "" },
+      }),
+    );
+    const reqs = await one(`select count(*)::int n from refund_requests where order_id = 'BRY-RACE'`);
+    check(
+      "10 refund requests at once for one order: only 1 is created",
+      reqs.n === 1 && res.filter((r) => r.status === 200).length === 1,
+      `${reqs.n} requests, statuses ${[...new Set(res.map((r) => r.status))].join(",")}`,
+    );
+  });
+
+  await step("parallel code guessing", async () => {
+    const email = "race-victim@example.test";
+    const code = "731905";
+    await q(
+      `insert into email_login_codes (email, code_hash, expires_at, attempts) values ($1, $2, now() + interval '10 minutes', 0)
+       on conflict (email) do update set code_hash = excluded.code_hash, expires_at = excluded.expires_at, attempts = 0`,
+      [email, crypto.createHash("sha256").update(`login:${email}:${code}`).digest("hex")],
+    );
+    const res = await burst(40, (i, from) =>
+      callFrom(from, "/api/auth/email", { method: "POST", body: { email, code: String(200000 + i) } }),
+    );
+    const row = await one(`select attempts from email_login_codes where email = $1`, [email]);
+    // Lift the rate limit, so only the code's own lock can stop the right code.
+    await q(`delete from rate_limits where key like 'email-login%'`);
+    const right = await callFrom("10.9.99.1", "/api/auth/email", { method: "POST", body: { email, code } });
+    check(
+      "40 code guesses at once: exactly 5 counted, the code is dead",
+      (!row || row.attempts === 5) && !res.some((r) => r.status === 200 || r.status >= 500),
+      `attempts ${row?.attempts ?? "code removed"}; ${res.filter((r) => r.status === 429).length} rate-limited`,
+    );
+    check("…even the right code no longer works", right.status === 400, `right code → ${right.status}`);
+  });
 } finally {
   await stack.stop();
   process.exit(summary(stack.log()) ? 1 : 0);
