@@ -61,6 +61,8 @@ export const settingsSchema = z.object({
   emailTeamNewOrder: z.boolean(),
   /** "Forgot password?" on the dashboard sends a one-time code to the person's Gmail. */
   dashboardPasswordReset: z.boolean(),
+  /** Which provider sends first; the other one (if set up) is the automatic backup. */
+  emailPrimary: z.enum(["resend", "smtp"]),
 
   // Payments: Razorpay on, or (when an admin turns it off) demo payments for everyone.
   paymentMode: z.preprocess((v) => (v === "off" ? "demo" : v), z.enum(["razorpay", "demo"])),
@@ -101,6 +103,7 @@ export const settingsDefaults: Settings = {
   emailDailyLimit: 500,
   emailTeamNewOrder: true,
   dashboardPasswordReset: true,
+  emailPrimary: "resend",
   paymentMode: "razorpay",
   maintenance: false,
   maintenanceMessage: "We’re making a few little improvements. Please check back shortly.",

@@ -862,6 +862,7 @@ const settingSections = {
     "emailTeamNewOrder",
     "dashboardPasswordReset",
     "emailSignIn",
+    "emailPrimary",
   ],
   emailLimit: ["emailDailyLimit"],
   maintenance: ["maintenance", "maintenanceMessage"],

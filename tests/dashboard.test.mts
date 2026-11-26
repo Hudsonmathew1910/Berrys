@@ -907,6 +907,72 @@ await test("no email set up: nothing is sent and nothing is counted", async () =
   assert.equal(await email.sendMail({ to: "a@b.co", subject: "x", html: "x", kind: "test" }), false);
   assert.equal((await q(sql`select count(*)::int n from email_sends`))[0].n, 0);
 });
+await test("every email gets a plain-text copy (links kept, tags gone)", async () => {
+  const text = email.htmlToText(
+    `<div style="x"><h2>Thank you, A &amp; B!</h2><p>Order <b>BR-1</b> is confirmed.</p>
+     <table><tr><td>Tee · Size M × 1</td><td>₹499</td></tr></table>
+     <p><a href="https://berrystores.in/account/orders/BR-1" style="y">View your order</a></p>
+     <a href="mailto:help@x.in">help@x.in</a></div>`,
+  );
+  assert.equal(
+    text,
+    "Thank you, A & B!\nOrder BR-1 is confirmed.\n\nTee · Size M × 1 — ₹499\n\nView your order: https://berrystores.in/account/orders/BR-1\n\nhelp@x.in",
+  );
+});
+/**
+ * Both providers set up: SMTP points at a closed port (always fails fast) and
+ * Resend is a fake fetch answering `resendStatus`. Returns the attempts in order.
+ */
+async function sendWithBoth(primary: "resend" | "smtp", resendStatus: number) {
+  const { updateSettings } = await import("../lib/settings.ts");
+  const env = { ...process.env };
+  const realFetch = globalThis.fetch;
+  Object.assign(process.env, {
+    SMTP_USER: "shop@gmail.com",
+    SMTP_PASS: "app-password",
+    SMTP_HOST: "127.0.0.1",
+    SMTP_PORT: "1",
+    RESEND_API_KEY: "re_test",
+  });
+  globalThis.fetch = (async () => new Response("{}", { status: resendStatus })) as typeof fetch;
+  try {
+    await updateSettings({ emailPrimary: primary }, "tester");
+    const label = email.emailProvider(primary);
+    const sent = await email.sendMail({ to: "a@b.co", subject: "x", html: "x", kind: "order" }).catch(() => "threw");
+    const rows = await q(sql`select provider, ok from email_sends where kind = 'order' order by sent_at, ok`);
+    return { label, sent, attempts: rows.map((r) => `${r.provider}:${r.ok}`) };
+  } finally {
+    globalThis.fetch = realFetch;
+    for (const k of ["SMTP_USER", "SMTP_PASS", "SMTP_HOST", "SMTP_PORT", "RESEND_API_KEY"]) {
+      if (env[k] === undefined) delete process.env[k];
+      else process.env[k] = env[k];
+    }
+    await updateSettings({ emailPrimary: "resend" }, "tester");
+    await q(sql`delete from email_sends`);
+  }
+}
+await test("emails: Resend by default; Gmail SMTP only as backup", async () => {
+  const { settingsDefaults } = await import("../lib/settings.ts");
+  assert.equal(settingsDefaults.emailPrimary, "resend");
+  assert.deepEqual(await sendWithBoth("resend", 200), {
+    label: "Resend, backup: Gmail SMTP",
+    sent: true,
+    attempts: ["resend:true"],
+  });
+  // Resend down → SMTP is tried next (it fails here too, so the error is thrown).
+  assert.deepEqual(await sendWithBoth("resend", 500), {
+    label: "Resend, backup: Gmail SMTP",
+    sent: "threw",
+    attempts: ["resend:false", "smtp:false"],
+  });
+});
+await test("emails: Gmail SMTP chosen in settings goes first; Resend takes over when it fails", async () => {
+  assert.deepEqual(await sendWithBoth("smtp", 200), {
+    label: "Gmail SMTP, backup: Resend",
+    sent: true,
+    attempts: ["smtp:false", "resend:true"],
+  });
+});
 await test("emails-sent counter: last 24 h / 7 / 30 days, failures and kinds", async () => {
   await q(sql`insert into email_sends (kind, ok, sent_at) values
     ('sign-in-code', true, now()), ('sign-in-code', true, now() - interval '2 hours'),

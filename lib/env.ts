@@ -22,6 +22,13 @@ export const serverEnv = {
       "http://localhost:3000"
     ).replace(/\/$/, ""),
 
+  /**
+   * Base URL for links inside emails. EMAIL_SITE_URL (e.g. https://berrystores.in)
+   * lets emails sent while developing on localhost still link to the live site:
+   * spam filters distrust localhost / plain-http links. Defaults to siteUrl().
+   */
+  emailSiteUrl: () => (process.env.EMAIL_SITE_URL?.trim() || serverEnv.siteUrl()).replace(/\/$/, ""),
+
   supabaseUrl: () => required("NEXT_PUBLIC_SUPABASE_URL", process.env.NEXT_PUBLIC_SUPABASE_URL),
   supabaseServiceRoleKey: () => required("SUPABASE_SERVICE_ROLE_KEY", process.env.SUPABASE_SERVICE_ROLE_KEY),
   databaseUrl: () => required("DATABASE_URL", process.env.DATABASE_URL),

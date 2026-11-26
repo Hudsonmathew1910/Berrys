@@ -41,6 +41,8 @@ function HeaderLoginMenu({ emailSignIn }: { emailSignIn: boolean }) {
       <button
         type="button"
         className="header-login-btn"
+        // Form-filler browser extensions add attributes (e.g. fdprocessedid) before React loads.
+        suppressHydrationWarning
         aria-haspopup="true"
         aria-expanded={open}
         onClick={(e) => {
@@ -149,7 +151,7 @@ export function SiteHeader({
             aria-label="Search products"
             placeholder="Search co-ords, dresses, pyjamas & more"
           />
-          <button type="submit" className="search-submit">
+          <button type="submit" className="search-submit" suppressHydrationWarning>
             Search
           </button>
         </form>

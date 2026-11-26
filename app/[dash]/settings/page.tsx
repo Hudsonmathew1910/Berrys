@@ -1,4 +1,4 @@
-import { emailConfigured, emailProvider, emailStats } from "@/lib/email";
+import { emailConfigured, emailProvider, emailProvidersReady, emailStats } from "@/lib/email";
 import { razorpayConfigured } from "@/lib/orders";
 import { getSettings } from "@/lib/settings";
 import Link from "next/link";
@@ -38,6 +38,7 @@ export default async function SettingsPage() {
   await requirePage("settings");
   const s = await getSettings();
   const mail = emailConfigured();
+  const ready = emailProvidersReady();
   const sent = await emailStats();
   const used = Math.min(100, Math.round((sent.day / s.emailDailyLimit) * 100));
   const rzp = razorpayConfigured();
@@ -55,7 +56,7 @@ export default async function SettingsPage() {
       !!process.env.RAZORPAY_WEBHOOK_SECRET,
       process.env.RAZORPAY_WEBHOOK_SECRET ? "Secret set" : "RAZORPAY_WEBHOOK_SECRET not set",
     ],
-    ["Email", mail, mail ? emailProvider() : "Not set up"],
+    ["Email", mail, mail ? emailProvider(s.emailPrimary) : "Not set up"],
     [
       "Store owner",
       !!process.env.STORE_OWNER_EMAIL,
@@ -214,11 +215,35 @@ export default async function SettingsPage() {
           <h2>Emails</h2>
           <p>
             <StatusDot ok={mail}>
-              {mail ? `Sending with ${emailProvider()}` : "Email isn’t set up (SMTP_USER / SMTP_PASS)"}
+              {mail
+                ? `Sending with ${emailProvider(s.emailPrimary)}`
+                : "Email isn’t set up (RESEND_API_KEY, or SMTP_USER / SMTP_PASS)"}
             </StatusDot>
           </p>
           <ActionForm action={saveSettingsAction} saveAll>
             <input type="hidden" name="section" value="emails" />
+            <fieldset className="email-primary">
+              <legend>Send emails with</legend>
+              <div className="access-modes" role="radiogroup" aria-label="Send emails with">
+                {(
+                  [
+                    ["resend", "Resend", "From your domain (ORDER_EMAIL_FROM). Lands in the inbox."],
+                    ["smtp", "Gmail SMTP", "From the Gmail account (SMTP_USER). About 500 emails a day."],
+                  ] as const
+                ).map(([value, title, text]) => (
+                  <label key={value} className="access-mode">
+                    <input type="radio" name="emailPrimary" value={value} defaultChecked={s.emailPrimary === value} />
+                    <span>
+                      <b>{title}</b>
+                      <small>{ready[value] ? text : "Not set up — its keys aren’t in the environment."}</small>
+                    </span>
+                  </label>
+                ))}
+              </div>
+              <small className="muted">
+                If it fails or isn’t set up, the other one sends the email instead.
+              </small>
+            </fieldset>
             <Toggle
               name="emailOrderStatus"
               title="Order status emails"
@@ -256,7 +281,7 @@ export default async function SettingsPage() {
         <section className={"dash-panel" + (used >= 80 ? " highlight" : "")} id="email-usage">
           <h2>Emails sent</h2>
           <p className="muted">
-            {emailProvider() === "Gmail SMTP"
+            {emailProvider(s.emailPrimary).startsWith("Gmail SMTP")
               ? "Gmail lets one account send about 500 emails a day (2,000 with Google Workspace), counted over the last 24 hours. Past the limit, emails fail until the oldest ones are a day old."
               : "Counted over the last 24 hours, against the daily limit of your email account."}
           </p>

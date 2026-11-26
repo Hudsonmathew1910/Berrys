@@ -1471,12 +1471,19 @@
   cursor: pointer;
   font-size: 12px;
 }
-.access-mode.on {
+.access-mode.on,
+.access-mode:has(input:checked) {
   border-color: var(--navy);
   background: #f6f4ef;
 }
 .access-mode input {
   margin-top: 2px;
+}
+.email-primary legend {
+  padding: 0;
+  margin-bottom: 8px;
+  font-weight: 700;
+  font-size: 13px;
 }
 .access-mode span {
   display: grid;

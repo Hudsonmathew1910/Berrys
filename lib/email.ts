@@ -21,14 +21,35 @@ const escape = (s: string) =>
 
 /** Is any email provider set up (Gmail SMTP or Resend)? */
 export const emailConfigured = () => !!(serverEnv.smtp() || serverEnv.resendApiKey());
-export const emailProvider = () =>
-  serverEnv.smtp() ? "Gmail SMTP" : serverEnv.resendApiKey() ? "Resend" : "";
+
+type Provider = "smtp" | "resend";
+const providerNames: Record<Provider, string> = { smtp: "Gmail SMTP", resend: "Resend" };
+
+/** Which providers have their keys in the environment. */
+export const emailProvidersReady = (): Record<Provider, boolean> => ({
+  smtp: !!serverEnv.smtp(),
+  resend: !!serverEnv.resendApiKey(),
+});
+
+/** Providers that are set up, the chosen one (Settings → Emails) first and the other as backup. */
+function providerOrder(primary: Provider): Provider[] {
+  const ready = emailProvidersReady();
+  return ([primary, primary === "smtp" ? "resend" : "smtp"] as const).filter((p) => ready[p]);
+}
+
+/** e.g. "Resend, backup: Gmail SMTP". */
+export const emailProvider = (primary: Provider = "resend") =>
+  providerOrder(primary)
+    .map((p) => providerNames[p])
+    .join(", backup: ");
 
 let transport: Transporter | null = null;
 
 /**
- * Sends one email through Gmail SMTP (SMTP_USER/SMTP_PASS) or Resend.
- * Returns false when no provider is configured; throws when sending fails.
+ * Sends one email with the provider chosen in Settings → Emails (Resend by
+ * default); if it isn't set up or fails, the other one sends it instead.
+ * Note: Gmail files mail an account sends to itself under Sent, not the Inbox.
+ * Returns false when no provider is configured; throws when every provider fails.
  */
 export async function sendMail(mail: {
   to: string;
@@ -41,15 +62,19 @@ export async function sendMail(mail: {
   const smtp = serverEnv.smtp();
   const apiKey = serverEnv.resendApiKey();
   if (!smtp && !apiKey) return false;
-  const provider = smtp ? "smtp" : "resend";
-  try {
-    await deliver(mail, smtp, apiKey);
-    await countSend(mail.kind ?? "", true, provider);
-    return true;
-  } catch (e) {
-    await countSend(mail.kind ?? "", false, provider);
-    throw e;
+  const providers = providerOrder((await getSettings()).emailPrimary);
+  const errors: unknown[] = [];
+  for (const provider of providers) {
+    try {
+      await deliver(mail, provider, smtp, apiKey);
+      await countSend(mail.kind ?? "", true, provider);
+      return true;
+    } catch (e) {
+      await countSend(mail.kind ?? "", false, provider);
+      errors.push(e);
+    }
   }
+  throw errors.length === 1 ? errors[0] : new AggregateError(errors, errors.map(String).join(" | "));
 }
 
 /** Records one send for the counter (never throws), and now and then drops rows older than 60 days. */
@@ -92,15 +117,41 @@ export async function emailStats() {
   return { day, week, month, failedDay, byKind };
 }
 
+/**
+ * Plain-text copy of an email's HTML. Spam filters distrust HTML-only mail, and
+ * text-only mail apps show this instead. Links become "label: url".
+ */
+export function htmlToText(html: string) {
+  const entities: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', "#39": "'", nbsp: " " };
+  return html
+    .replace(/<(style|script|head)[\s\S]*?<\/\1>/gi, "")
+    .replace(/<a\s[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/gi, (_, href: string, label: string) => {
+      const text = label.replace(/<[^>]+>/g, "").trim();
+      const url = href.replace(/&amp;/g, "&");
+      return !text || text === url || url.startsWith("mailto:") ? text || url : `${text}: ${url}`;
+    })
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/(p|div|h[1-6]|tr|table|li)>/gi, "\n")
+    .replace(/<\/td>\s*<td[^>]*>/gi, " — ")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&(amp|lt|gt|quot|#39|nbsp);/g, (_, e: string) => entities[e])
+    .replace(/[ \t]+/g, " ")
+    .replace(/ *\n */g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 async function deliver(
   mail: { to: string; subject: string; html: string; replyTo?: string },
+  provider: Provider,
   smtp: ReturnType<typeof serverEnv.smtp>,
   apiKey: string,
 ) {
   const { siteName, supportEmail } = await getSettings();
   const replyTo = mail.replyTo ?? (supportEmail || undefined);
+  const text = htmlToText(mail.html);
 
-  if (smtp) {
+  if (provider === "smtp" && smtp) {
     if (!transport) {
       const nodemailer = await import("nodemailer");
       transport = nodemailer.createTransport({
@@ -120,6 +171,7 @@ async function deliver(
       replyTo,
       subject: mail.subject,
       html: mail.html,
+      text,
     });
     return;
   }
@@ -133,6 +185,7 @@ async function deliver(
       reply_to: replyTo,
       subject: mail.subject,
       html: mail.html,
+      text,
     }),
   });
   if (!res.ok) throw new Error(`Resend error ${res.status}: ${(await res.text()).slice(0, 300)}`);
@@ -151,7 +204,7 @@ async function trySend(kind: string, ref: string, mail: Parameters<typeof sendMa
 // ---------------------------------------------------------------- layout
 
 function layout(s: Settings, body: string) {
-  const site = serverEnv.siteUrl();
+  const site = serverEnv.emailSiteUrl();
   const contact = [
     s.supportEmail &&
       `<a href="mailto:${escape(s.supportEmail)}" style="color:#7d827e">${escape(s.supportEmail)}</a>`,
@@ -206,7 +259,7 @@ const orderItems = (orderId: string) =>
 export async function sendOrderConfirmation(order: Order, items: Item[]): Promise<boolean> {
   if (!emailConfigured()) return false;
   const s = await getSettings();
-  const site = serverEnv.siteUrl();
+  const site = serverEnv.emailSiteUrl();
   const html = layout(
     s,
     `${demoNotice(order)}<h2 style="color:#193547;margin-top:0">Thank you, ${escape(order.customer)}!</h2>
@@ -237,7 +290,7 @@ export async function sendTeamNewOrder(order: Order, items: Item[]) {
     .where(and(eq(schema.staffMembers.active, true), eq(schema.staffMembers.notifyOrders, true)));
   const to = team.map((t) => t.email).filter((e): e is string => !!e && !isOwnerEmail(e));
   if (!to.length) return;
-  const link = `${serverEnv.siteUrl()}${adminHref(`orders/${encodeURIComponent(order.id)}`)}`;
+  const link = `${serverEnv.emailSiteUrl()}${adminHref(`orders/${encodeURIComponent(order.id)}`)}`;
   const html = layout(
     s,
     `${demoNotice(order)}<h2 style="color:#193547;margin-top:0">New ${order.isDemo ? "demo " : ""}order ${order.id}</h2>
@@ -290,7 +343,7 @@ export async function sendStatusUpdate(orderId: string, status: OrderStatus, not
   const [order] = await getDb().select().from(schema.orders).where(eq(schema.orders.id, orderId)).limit(1);
   if (!order) return;
   const items = await orderItems(orderId);
-  const site = serverEnv.siteUrl();
+  const site = serverEnv.emailSiteUrl();
   const tracking =
     status === "shipped" && (order.courier || order.trackingNumber)
       ? `<p><b>Courier:</b> ${escape(order.courier || "—")}<br><b>Tracking number:</b> ${escape(order.trackingNumber || "—")}</p>
@@ -423,7 +476,7 @@ const reasonBox = (r: RefundRequestRow) =>
 export async function sendRefundRequested(order: Order, r: RefundRequestRow) {
   const s = await getSettings();
   if (!emailConfigured()) return;
-  const link = `${serverEnv.siteUrl()}${adminHref(`orders/${encodeURIComponent(order.id)}`)}`;
+  const link = `${serverEnv.emailSiteUrl()}${adminHref(`orders/${encodeURIComponent(order.id)}`)}`;
   const teamHtml = layout(
     s,
     `${demoNotice(order)}<h2 style="color:#193547;margin-top:0">Refund requested · ${order.id}</h2>
@@ -450,7 +503,7 @@ export async function sendRefundRequested(order: Order, r: RefundRequestRow) {
      <p>Hi ${escape(order.customer)}, thanks for letting us know. Our team will review your request for order <b>${order.id}</b> and email you as soon as it’s decided.</p>
      ${reasonBox(r)}
      ${refundLinesTable(r)}
-     ${button(`${serverEnv.siteUrl()}/account/orders/${encodeURIComponent(order.id)}`, "View your order")}`,
+     ${button(`${serverEnv.emailSiteUrl()}/account/orders/${encodeURIComponent(order.id)}`, "View your order")}`,
   );
   await trySend("refund-received", order.id, {
     to: order.email,
@@ -463,7 +516,7 @@ export async function sendRefundRequested(order: Order, r: RefundRequestRow) {
 export async function sendRefundVerified(order: Order, r: RefundRequestRow, verifierEmail?: string | null) {
   const s = await getSettings();
   if (!emailConfigured()) return;
-  const link = `${serverEnv.siteUrl()}${adminHref("requests")}`;
+  const link = `${serverEnv.emailSiteUrl()}${adminHref("requests")}`;
   const html = layout(
     s,
     `${demoNotice(order)}<h2 style="color:#193547;margin-top:0">Refund waiting for your approval · ${order.id}</h2>
@@ -526,7 +579,7 @@ export async function sendRefundProgress(razorpayRefundId: string, opts: { skipI
   if (opts.skipInitiated && r.gatewayStatus === "initiated") return;
   const [order] = await getDb().select().from(schema.orders).where(eq(schema.orders.id, r.orderId)).limit(1);
   if (!order) return;
-  const site = serverEnv.siteUrl();
+  const site = serverEnv.emailSiteUrl();
   const state = r.gatewayStatus;
   const copy = {
     initiated: {
@@ -614,7 +667,7 @@ export async function sendTeamRequest(req: ApprovalRow, requesterEmail?: string 
      ${req.type === "refund" ? `<p><b>Amount:</b> ${req.amount ? money(req.amount) : "full refund (everything left on the order)"}</p>` : ""}
      <p style="background:#f6f4ef;padding:10px 14px;border-radius:8px"><b>Reason:</b> ${escape(req.reason)}</p>
      <p style="color:#7d827e;font-size:13px">Asked by ${escape(req.requestedBy)}</p>
-     ${button(`${serverEnv.siteUrl()}${adminHref("requests")}`, "Approve or reject")}`,
+     ${button(`${serverEnv.emailSiteUrl()}${adminHref("requests")}`, "Approve or reject")}`,
   );
   await Promise.all(
     to.map((email) =>
