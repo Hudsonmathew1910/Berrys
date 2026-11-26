@@ -940,7 +940,8 @@ async function sendWithBoth(primary: "resend" | "smtp", resendStatus: number) {
     const label = email.emailProvider(primary);
     const sent = await email.sendMail({ to: "a@b.co", subject: "x", html: "x", kind: "order" }).catch(() => "threw");
     const rows = await q(sql`select provider, ok from email_sends where kind = 'order' order by sent_at, ok`);
-    return { label, sent, attempts: rows.map((r) => `${r.provider}:${r.ok}`) };
+    const logged = await q(sql`select path from error_logs where source = 'email' order by created_at`);
+    return { label, sent, attempts: rows.map((r) => `${r.provider}:${r.ok}`), logged: logged.map((r) => r.path) };
   } finally {
     globalThis.fetch = realFetch;
     for (const k of ["SMTP_USER", "SMTP_PASS", "SMTP_HOST", "SMTP_PORT", "RESEND_API_KEY"]) {
@@ -949,6 +950,7 @@ async function sendWithBoth(primary: "resend" | "smtp", resendStatus: number) {
     }
     await updateSettings({ emailPrimary: "resend" }, "tester");
     await q(sql`delete from email_sends`);
+    await q(sql`delete from error_logs where source = 'email'`);
   }
 }
 await test("emails: Resend by default; Gmail SMTP only as backup", async () => {
@@ -958,12 +960,14 @@ await test("emails: Resend by default; Gmail SMTP only as backup", async () => {
     label: "Resend, backup: Gmail SMTP",
     sent: true,
     attempts: ["resend:true"],
+    logged: [],
   });
   // Resend down → SMTP is tried next (it fails here too, so the error is thrown).
   assert.deepEqual(await sendWithBoth("resend", 500), {
     label: "Resend, backup: Gmail SMTP",
     sent: "threw",
     attempts: ["resend:false", "smtp:false"],
+    logged: [], // sendMail throws; its caller (trySend) logs the error
   });
 });
 await test("emails: Gmail SMTP chosen in settings goes first; Resend takes over when it fails", async () => {
@@ -971,6 +975,8 @@ await test("emails: Gmail SMTP chosen in settings goes first; Resend takes over 
     label: "Gmail SMTP, backup: Resend",
     sent: true,
     attempts: ["smtp:false", "resend:true"],
+    // The backup delivered, but why the chosen provider failed is kept for the error log.
+    logged: ["order (sent by backup Resend)"],
   });
 });
 await test("emails-sent counter: last 24 h / 7 / 30 days, failures and kinds", async () => {

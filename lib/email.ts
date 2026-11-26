@@ -68,6 +68,10 @@ export async function sendMail(mail: {
     try {
       await deliver(mail, provider, smtp, apiKey);
       await countSend(mail.kind ?? "", true, provider);
+      // The backup saved this email, but the chosen provider is broken: keep its
+      // reason in the error log (Dashboard → Errors) so it can be fixed.
+      for (const e of errors)
+        await logError("email", e, { path: `${mail.kind ?? "email"} (sent by backup ${providerNames[provider]})` });
       return true;
     } catch (e) {
       await countSend(mail.kind ?? "", false, provider);
