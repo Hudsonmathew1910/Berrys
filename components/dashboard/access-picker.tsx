@@ -117,7 +117,7 @@ function Picker({
             <small>
               {role === "admin"
                 ? "Everything, like the store owner."
-                : "Orders, products, categories, offers, stock, payments, customers, sales, refunds and deleting products."}
+                : "Orders, products, categories, offers, stock, payments, customers, sales and deleting products. Refunds: request only."}
             </small>
           </span>
         </label>
@@ -145,7 +145,7 @@ function Picker({
         <>
           <fieldset className="perm-grid">
             <legend>Shop</legend>
-            {permissions.map((o) => box(o))}
+            {permissions.filter((o) => role === "admin" || o.key !== "refunds").map((o) => box(o))}
           </fieldset>
           {role === "admin" && (
             <fieldset className="perm-grid">

@@ -405,10 +405,10 @@ export async function verifyRefundRequestAction(_: ActionResult, f: FormData) {
     const recommend = str(f, "recommend") === "reject" ? "Recommend: reject" : "Recommend: approve";
     const note = [recommend, str(f, "note").slice(0, 500)].filter(Boolean).join(" — ");
     const req = await verifyRefundRequest(str(f, "id"), actorName(staff), note);
-    await logActivity(actorName(staff), "Verified refund request", req.orderId, note);
+    await logActivity(actorName(staff), "Accepted refund request (sent to admin)", req.orderId, note);
     const order = await orderRow(req.orderId);
     if (order) after(() => sendRefundVerified(order, req, staff.email));
-    return done("Verified — an admin has been asked to approve it.");
+    return done("Sent to an admin — they’ll approve and send the money, or reject it.");
   });
 }
 
@@ -1407,7 +1407,7 @@ async function refundStep(staff: Staff, requestId: string, op: RefundOp, note: s
     .filter(Boolean)
     .join(" — ");
   const req = await verifyRefundRequest(requestId, who, full);
-  await logActivity(who, "Verified refund request", req.orderId, full);
+  await logActivity(who, "Accepted refund request (sent to admin)", req.orderId, full);
   const order = await orderRow(req.orderId);
   if (order) after(() => sendRefundVerified(order, req, staff.email));
 }
@@ -1415,8 +1415,8 @@ async function refundStep(staff: Staff, requestId: string, op: RefundOp, note: s
 const refundOpDone: Record<RefundOp, string> = {
   approve: "Approved and paid {n} — each customer has been emailed.",
   reject: "Rejected {n} — each customer has been emailed.",
-  verify_approve: "Verified {n} (recommend approve) — an admin has been asked to decide.",
-  verify_reject: "Verified {n} (recommend reject) — an admin has been asked to decide.",
+  verify_approve: "Accepted {n} and sent to an admin to send the money.",
+  verify_reject: "Sent {n} to an admin, marked not valid.",
 };
 
 function refundOpFrom(f: FormData) {

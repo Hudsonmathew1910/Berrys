@@ -78,7 +78,7 @@ export function RefundRequestCard({
       </p>
       {r.verifiedBy && (
         <p className="muted">
-          Verified by {r.verifiedBy} · {fmt(r.verifiedAt)}
+          Accepted by {r.verifiedBy} · {fmt(r.verifiedAt)}
           {r.staffNote && <> — {r.staffNote}</>}
         </p>
       )}
@@ -99,7 +99,7 @@ export function RefundRequestCard({
           </label>
           <div className="button-row">
             <button className="primary" name="decision" value="approve">
-              Approve refund
+              Approve & send {money(r.amount)}
             </button>
             <button className="outline danger-outline" name="decision" value="reject">
               Reject
@@ -111,21 +111,21 @@ export function RefundRequestCard({
         <ActionForm action={verifyRefundRequestAction}>
           <input type="hidden" name="id" value={r.id} />
           <label>
-            Your recommendation
+            Your decision
             <select name="recommend" defaultValue="approve">
-              <option value="approve">Reason checked — approve the refund</option>
-              <option value="reject">Reason not valid — reject</option>
+              <option value="approve">Accept — the reason is valid</option>
+              <option value="reject">Not valid — suggest rejecting</option>
             </select>
           </label>
           <label>
             Note for the admin
             <input name="note" maxLength={500} placeholder="e.g. Photo shows a torn seam" />
           </label>
-          <button className="primary">Verify & send to admin</button>
+          <button className="primary">Send to admin</button>
         </ActionForm>
       )}
       {r.status === "verified" && !isAdmin && (
-        <p className="muted">Waiting for an admin to approve or reject.</p>
+        <p className="muted">Sent to an admin — they’ll approve and send the money, or reject it.</p>
       )}
       {r.status === "approved" &&
         (payout ? (

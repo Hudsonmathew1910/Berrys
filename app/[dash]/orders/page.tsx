@@ -71,8 +71,8 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
               ? [
                   {
                     op: "approve",
-                    label: "Approve refunds",
-                    confirm: "Approve {n} refunds? Each customer is emailed.",
+                    label: "Approve & send refunds",
+                    confirm: "Approve {n} refunds and send the money? Each customer is emailed.",
                   },
                   {
                     op: "reject",
@@ -82,8 +82,8 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
                   },
                 ]
               : [
-                  { op: "verify_approve", label: "Verify — recommend approve" },
-                  { op: "verify_reject", label: "Verify — recommend reject" },
+                  { op: "verify_approve", label: "Accept & send to admin" },
+                  { op: "verify_reject", label: "Not valid — send to admin" },
                 ]
           }
           fields={[

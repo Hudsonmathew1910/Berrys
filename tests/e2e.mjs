@@ -460,7 +460,7 @@ try {
     );
     await go("/requests");
     await tick(["Select refund request for E2ER-3"]);
-    await page.locator("#refund-bulk").getByRole("button", { name: "Approve refunds" }).click();
+    await page.locator("#refund-bulk").getByRole("button", { name: "Approve & send refunds" }).click();
     const m2 = await bulkMsg("refund-bulk");
     check("bulk approve refunds (Requests page)", (await st(["E2ER-3"]))[0] === "approved", m2);
     check(
@@ -499,7 +499,7 @@ try {
     // Orders → refund requests filter (admin): approve by order.
     await go("/orders?status=refunds");
     await tick(["Select order E2ER-4"]);
-    await page.locator("#order-refunds-bulk").getByRole("button", { name: "Approve refunds" }).click();
+    await page.locator("#order-refunds-bulk").getByRole("button", { name: "Approve & send refunds" }).click();
     const m3 = await bulkMsg("order-refunds-bulk");
     check("Orders refund view: bulk approve", (await st(["E2ER-4"]))[0] === "approved", m3);
 
@@ -530,7 +530,7 @@ try {
     await sp.goto(`${B}/${P}/orders?status=refunds`, { waitUntil: "networkidle" });
     check(
       "staff sees verify buttons, not approve",
-      (await sp.locator("#order-refunds-bulk").getByRole("button", { name: "Approve refunds" }).count()) ===
+      (await sp.locator("#order-refunds-bulk").getByRole("button", { name: "Approve & send refunds" }).count()) ===
         0,
     );
     await sp.getByLabel("Select order E2ER-5", { exact: true }).check();
@@ -538,7 +538,7 @@ try {
     await sp.locator("#order-refunds-bulk input[name=note]").fill("Checked photos");
     await sp
       .locator("#order-refunds-bulk")
-      .getByRole("button", { name: "Verify — recommend approve" })
+      .getByRole("button", { name: "Accept & send to admin" })
       .click();
     await sp.locator("#order-refunds-bulk .form-msg").waitFor({ timeout: 20000 });
     const v = await q(`select status, staff_note from refund_requests where order_id in ('E2ER-5','E2ER-6')`);

@@ -86,12 +86,19 @@ await test("admin with chosen access only gets what was ticked", () => {
     assert.equal(core.can(a, k), false, k);
   assert.equal(core.accessSummary(a), "Chosen access (2)");
 });
-await test("staff Default access = the 10 standard permissions (no website content / admin areas)", () => {
+await test("staff Default access = the 9 standard permissions (no refunds, website content or admin areas)", () => {
   const s = member("staff", "default");
   assert.deepEqual(core.grantedAccess(s), core.staffDefaultPermissions);
-  assert.equal(core.staffDefaultPermissions.length, 10);
-  for (const k of ["content", "delete_categories", "settings", "requests"] as const)
+  assert.equal(core.staffDefaultPermissions.length, 9);
+  for (const k of ["refunds", "content", "delete_categories", "settings", "requests"] as const)
     assert.equal(core.can(s, k), false, k);
+});
+await test("refunds: only admins send money; staff can't, even if it was ticked before", () => {
+  assert.equal(core.can(member("staff", "manual", ["orders", "refunds"]), "refunds"), false);
+  assert.equal(core.can(member("staff", "manual", ["orders", "refunds"]), "orders"), true);
+  assert.equal(core.can(member("admin", "manual", ["refunds"]), "refunds"), true);
+  assert.equal(core.can(member("admin", "manual", ["orders"]), "refunds"), false);
+  assert.equal(core.can(member("admin", "full"), "refunds"), true);
 });
 await test("staff with chosen access: ticked shop permissions only, never admin areas", () => {
   const s = member("staff", "manual", ["orders", "settings", "team"]);

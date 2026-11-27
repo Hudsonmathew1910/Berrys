@@ -63,8 +63,8 @@ export default async function RequestsPage({
             ops={[
               {
                 op: "approve",
-                label: "Approve refunds",
-                confirm: "Approve {n} refunds? Each customer is emailed.",
+                label: "Approve & send refunds",
+                confirm: "Approve {n} refunds and send the money? Each customer is emailed.",
               },
               {
                 op: "reject",

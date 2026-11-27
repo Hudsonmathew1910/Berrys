@@ -40,7 +40,7 @@ export const permissionLabels: Record<Permission, string> = {
   customers: "Customers",
   analytics: "Sales & analytics",
   content: "Website content",
-  refunds: "Issue refunds (otherwise: request)",
+  refunds: "Send refunds (admins only; staff can only request)",
   delete_products: "Delete products (otherwise: request)",
   delete_categories: "Delete categories (otherwise: request)",
 };
@@ -65,9 +65,11 @@ export const staffDefaultPermissions: Permission[] = [
   "payments",
   "customers",
   "analytics",
-  "refunds",
   "delete_products",
 ];
+
+/** Only admins can have these; shop staff always send a request to an admin instead. */
+export const adminOnlyPermissions: Permission[] = ["refunds"];
 
 /**
  * The secret dashboard address, from ADMIN_PATH (one URL segment, e.g.
@@ -162,6 +164,8 @@ export function hasFullAccess(s: Member) {
 export function can(s: Member, key: AccessKey) {
   if (hasFullAccess(s)) return true;
   if (s.role !== "admin" && (adminAreaKeys as readonly string[]).includes(key)) return false;
+  // Shop staff never send money themselves, even if an older setup ticked it.
+  if (s.role !== "admin" && (adminOnlyPermissions as string[]).includes(key)) return false;
   if (s.role !== "admin" && s.accessMode === "default")
     return (staffDefaultPermissions as string[]).includes(key);
   return s.permissions.includes(key);

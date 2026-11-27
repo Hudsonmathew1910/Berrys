@@ -23,7 +23,7 @@ export const refundReasons = [
 
 export const refundStatusLabels: Record<RefundRequestStatus, string> = {
   requested: "Refund requested",
-  verified: "Refund verified — waiting for admin",
+  verified: "Accepted by staff — waiting for admin",
   approved: "Refund approved",
   rejected: "Refund rejected",
 };
