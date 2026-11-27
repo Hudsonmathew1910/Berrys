@@ -1,3 +1,4 @@
+import { SectionNav } from "@/components/dashboard/section-nav";
 import Link from "next/link";
 import { listOffers, listSalePrices, productOptions } from "@/lib/admin/catalog";
 import { getCategories } from "@/lib/categories";
@@ -41,12 +42,20 @@ export default async function OffersPage() {
         </div>
       </div>
 
-      <section className="dash-panel highlight">
+      <SectionNav
+        items={[
+          { id: "create", label: "Create offers" },
+          { id: "offers", label: "Offers" },
+          { id: "sale-prices", label: "Sale prices" },
+        ]}
+      />
+
+      <section className="dash-panel highlight" id="create">
         <h2>Create offers</h2>
         <NewOffers {...shared} />
       </section>
 
-      <section className="dash-panel">
+      <section className="dash-panel" id="offers">
         <h2>
           Offers <small className="muted">· {offers.length}</small>
         </h2>

@@ -1,10 +1,13 @@
 import { listActivity } from "@/lib/admin/team";
 import { adminHref, requirePage } from "@/lib/staff";
+import { canManageAdmins } from "@/lib/staff-core";
+import { ActionForm } from "@/components/dashboard/action-form";
+import { clearActivityAction } from "../actions";
 import { pageNum } from "@/components/dashboard/list-tools";
 import { Pagination } from "@/components/shop/pagination";
 
 export default async function ActivityPage({ searchParams }: { searchParams: Promise<{ page?: string }> }) {
-  await requirePage("activity");
+  const staff = await requirePage("activity");
   const page = pageNum((await searchParams).page);
   const res = await listActivity(page);
   return (
@@ -12,6 +15,15 @@ export default async function ActivityPage({ searchParams }: { searchParams: Pro
       <div className="dash-heading">
         <h1>Activity log</h1>
         <span className="muted">{res.total} entries</span>
+        {res.total > 0 && canManageAdmins(staff) && (
+          <ActionForm
+            action={clearActivityAction}
+            confirm={`Clear all ${res.total} entries of the activity log? This can’t be undone.`}
+            inline
+          >
+            <button className="text-link danger">Clear activity log</button>
+          </ActionForm>
+        )}
       </div>
       <div className="table-scroll">
         <table className="dash-table compact">

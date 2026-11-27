@@ -928,6 +928,17 @@ export async function paymentModeAction(_: ActionResult, f: FormData) {
   });
 }
 
+/** Activity log: start fresh. Only the store owner (it's the record of what everyone did). */
+export async function clearActivityAction() {
+  return run("activity", async (staff) => {
+    if (!canManageAdmins(staff)) return { error: "Only the store owner can clear the activity log." };
+    const n = await team.clearActivity();
+    // The clear itself is the first entry of the new log.
+    await logActivity(actorName(staff), "Cleared activity log", "", `${n} entries removed`);
+    return done(`Activity log cleared (${n} entries).`);
+  });
+}
+
 export async function clearErrorsAction(_: ActionResult, f: FormData) {
   return run("errors", async (staff) => {
     const source = str(f, "source");

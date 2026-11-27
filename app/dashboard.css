@@ -1029,15 +1029,18 @@
 /* ===========================================================================
    Settings, developer settings, error log, password reset
    =========================================================================== */
+/* Two columns that stack panels without gaps (panels differ a lot in height). */
 .settings-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
-  gap: 16px;
-  align-items: start;
+  columns: 2 380px;
+  column-gap: 16px;
   margin-bottom: 16px;
 }
+.settings-grid > .dash-panel {
+  break-inside: avoid;
+  margin: 0 0 16px;
+}
 .settings-grid .dash-panel.wide {
-  grid-column: 1 / -1;
+  column-span: all;
 }
 .settings-grid .dash-form {
   display: grid;
@@ -1073,6 +1076,18 @@
   width: auto;
   min-width: 0;
   padding: 4px 8px;
+  font-size: 12px;
+}
+.setting-toggle.static {
+  cursor: default;
+}
+.always-on {
+  flex: 0 0 auto;
+  font-size: 11px;
+  color: var(--muted);
+}
+.email-note {
+  margin: 0;
   font-size: 12px;
 }
 .setting-toggle.disabled {
@@ -1272,7 +1287,7 @@
 }
 @media (max-width: 900px) {
   .settings-grid {
-    grid-template-columns: minmax(0, 1fr);
+    columns: 1;
   }
   .status-list li {
     flex-wrap: wrap;
@@ -1499,12 +1514,6 @@
 }
 .access-mode input {
   margin-top: 2px;
-}
-.email-primary legend {
-  padding: 0;
-  margin-bottom: 8px;
-  font-weight: 700;
-  font-size: 13px;
 }
 .access-mode span {
   display: grid;
@@ -2193,3 +2202,115 @@ button.rows-image:hover {
   background: #fbf0d9;
   color: #8a5a12;
 }
+
+/* ---- "On this page" jump links on long pages ---- */
+.section-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 16px;
+}
+.section-nav a {
+  padding: 5px 11px;
+  border: 1px solid var(--line);
+  border-radius: 99px;
+  background: #fffefa;
+  color: var(--navy);
+  font-size: 12px;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.section-nav a:hover,
+.section-nav a:focus-visible {
+  border-color: var(--navy);
+  background: #f6f4ef;
+}
+/* A jumped-to section stops below the sticky Save-all bar. */
+.dash-page [id] {
+  scroll-margin-top: 76px;
+}
+html {
+  scroll-behavior: smooth;
+}
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+}
+
+/* ---- Dashboard search (top bar and the Search page) ---- */
+.dash-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 1 340px;
+  min-width: 0;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 99px;
+  background: #fffefa;
+  color: var(--muted);
+}
+.dash-search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  padding: 7px 0;
+  font: inherit;
+  font-size: 12px;
+  color: var(--navy);
+  outline: none;
+}
+.dash-search:focus-within {
+  border-color: var(--navy);
+}
+.dash-search.wide {
+  max-width: 560px;
+  padding: 4px 4px 4px 14px;
+  margin: 0 0 18px;
+}
+.dash-search.wide input {
+  font-size: 14px;
+}
+.dash-search.wide button {
+  border-radius: 99px;
+  padding: 7px 16px;
+}
+.search-results {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 16px;
+  align-items: start;
+}
+.search-list {
+  list-style: none;
+  margin: 0 0 8px;
+  padding: 0;
+}
+.search-list li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 10px;
+  align-items: baseline;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+}
+.search-list li:last-child {
+  border-bottom: 0;
+}
+.search-list a {
+  color: var(--navy);
+  font-weight: 600;
+}
+.search-list .muted {
+  font-size: 12px;
+}
+@media (max-width: 760px) {
+  .dash-top .dash-search {
+    flex: 1 1 100%;
+    order: 2;
+  }
+}
+

@@ -1,3 +1,4 @@
+import { SectionNav } from "@/components/dashboard/section-nav";
 import { listCategoriesWithCounts } from "@/lib/admin/catalog";
 import { DEFAULT_SIZES } from "@/lib/catalog";
 import { can, requirePage } from "@/lib/staff";
@@ -62,7 +63,14 @@ export default async function CategoriesPage() {
         </div>
       </div>
 
-      <section className="dash-panel highlight">
+      <SectionNav
+        items={[
+          { id: "add", label: "Add categories" },
+          ...cats.map((c) => ({ id: `cat-${c.id}`, label: c.name })),
+        ]}
+      />
+
+      <section className="dash-panel highlight" id="add">
         <h2>Add categories</h2>
         <p className="muted">Add as many rows as you need, then save them all at once.</p>
         <RowsEditor
@@ -107,7 +115,7 @@ export default async function CategoriesPage() {
 
       <div className="dash-grid">
         {cats.map((c) => (
-          <section key={c.id} className="dash-panel">
+          <section key={c.id} className="dash-panel" id={`cat-${c.id}`}>
             <h2>
               <BulkCheck form="categories-bulk" value={c.id} label={`Select ${c.name}`} /> {c.name}{" "}
               <small className="muted">· {c.products} products</small>{" "}

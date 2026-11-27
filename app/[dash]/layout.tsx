@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { headers } from "next/headers";
 import { notFound } from "next/navigation";
-import { ArrowUpRight, Lock, LogOut } from "lucide-react";
+import { ArrowUpRight, Lock, LogOut, Search } from "lucide-react";
 import { newOrderCount } from "@/lib/admin/orders";
 import { pendingRequestCount } from "@/lib/admin/team";
 import { refundRequestCounts } from "@/lib/refunds";
@@ -33,10 +33,12 @@ export const dynamic = "force-dynamic";
  * can't open are hidden anyway; anything not listed keeps its place at the end.
  */
 const navOrder: Record<"owner" | "admin" | "staff", string[]> = {
-  // The owner watches the business: sales, approvals, money, then the shop and the team.
+  // The owner watches the business: sales, the website and settings, then approvals and money.
   owner: [
     "overview",
     "analytics",
+    "content",
+    "settings",
     "requests",
     "orders",
     "payments",
@@ -45,30 +47,28 @@ const navOrder: Record<"owner" | "admin" | "staff", string[]> = {
     "offers",
     "stock",
     "categories",
-    "content",
     "team",
-    "settings",
     "activity",
     "errors",
     "account",
   ],
-  // Admins run the day: orders and approvals, the catalogue, then reports and admin areas.
+  // Admins run the day: approvals and orders, then sales and money, settings and the website.
   admin: [
     "overview",
-    "orders",
     "requests",
+    "orders",
+    "analytics",
+    "payments",
+    "settings",
+    "content",
     "products",
     "stock",
     "offers",
     "customers",
-    "payments",
     "categories",
-    "analytics",
-    "content",
     "team",
     "activity",
     "errors",
-    "settings",
     "account",
   ],
   // Staff do the work: pack orders, keep products and stock right.
@@ -208,6 +208,14 @@ export default async function DashboardLayout({
         <div className="dash-main">
           <header className="dash-top">
             <span>Berry’s workspace</span>
+            <form className="dash-search" action={adminHref("search")} role="search">
+              <Search size={14} aria-hidden="true" />
+              <input
+                name="q"
+                placeholder="Search orders, products, customers…"
+                aria-label="Search the dashboard"
+              />
+            </form>
             <span className="owner-pill">
               <span />
               {staff.email} · {roleLabels[staff.role]}

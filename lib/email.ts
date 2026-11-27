@@ -89,7 +89,9 @@ export async function sendMail(mail: {
       // The backup saved this email, but the chosen provider is broken: keep its
       // reason in the error log (Dashboard → Errors) so it can be fixed.
       for (const e of errors)
-        await logError("email", e, { path: `${mail.kind ?? "email"} (sent by backup ${providerNames[provider]})` });
+        await logError("email", e, {
+          path: `${mail.kind ?? "email"} (sent by backup ${providerNames[provider]})`,
+        });
       return true;
     } catch (e) {
       await countSend(mail.kind ?? "", false, provider);
@@ -243,18 +245,29 @@ function layout(s: Settings, body: string) {
   ]
     .filter(Boolean)
     .join(" · ");
-  return `
-  <div style="background:#f6f4ef;padding:24px 12px;font-family:Arial,Helvetica,sans-serif">
-    <div style="max-width:560px;margin:0 auto;background:#ffffff;border-radius:12px;overflow:hidden;border:1px solid #e5e4dd">
-      <div style="background:#183147;padding:18px 24px">
-        <a href="${site}" style="color:#ffffff;text-decoration:none;font-size:20px;font-weight:bold;letter-spacing:2px">${escape(s.siteName.toUpperCase())}</a>
-      </div>
-      <div style="padding:24px;color:#253b45;font-size:15px;line-height:1.55">${body}</div>
-      <div style="padding:16px 24px;border-top:1px solid #eeede7;color:#7d827e;font-size:12px">
-        ${escape(s.siteName)} · <a href="${site}" style="color:#7d827e">${site.replace(/^https?:\/\//, "")}</a>${contact ? `<br>${contact}` : ""}${s.storeAddress ? `<br>${escape(s.storeAddress).replace(/\r?\n/g, "<br>")}` : ""}
-      </div>
-    </div>
-  </div>`;
+  // Hidden preview line: the first words of the email, shown next to the subject in the inbox.
+  const preview = escape(htmlToText(body).replace(/\s+/g, " ").slice(0, 110));
+  const name = escape(s.siteName);
+  // Table layout + inline styles: what every mail app (Gmail, Outlook, Apple Mail) renders the same.
+  return `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${name}</title></head>
+<body style="margin:0;padding:0;background:#f6f4ef">
+<div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent">${preview}</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f6f4ef">
+  <tr><td align="center" style="padding:24px 12px;font-family:Arial,Helvetica,sans-serif">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:560px;background:#ffffff;border:1px solid #e5e4dd;border-radius:12px;overflow:hidden">
+      <tr><td align="center" style="background:#183147;padding:14px 24px">
+        <a href="${site}" style="text-decoration:none"><img src="${site}/images/email-logo.jpg" width="150" height="110" alt="${name}" style="display:block;border:0;outline:none;width:150px;height:auto;color:#ffffff;font-size:20px;font-weight:bold"></a>
+      </td></tr>
+      <tr><td style="padding:24px;color:#253b45;font-size:15px;line-height:1.55;font-family:Arial,Helvetica,sans-serif">${body}</td></tr>
+      <tr><td style="padding:16px 24px;border-top:1px solid #eeede7;color:#7d827e;font-size:12px;line-height:1.5;font-family:Arial,Helvetica,sans-serif">
+        ${name} · <a href="${site}" style="color:#7d827e">${site.replace(/^https?:\/\//, "")}</a>${contact ? `<br>${contact}` : ""}${s.storeAddress ? `<br>${escape(s.storeAddress).replace(/\r?\n/g, "<br>")}` : ""}
+        <br><span style="color:#a3a69f">You’re getting this email because of your account or an order at ${name}.</span>
+      </td></tr>
+    </table>
+  </td></tr>
+</table>
+</body></html>`;
 }
 
 const button = (href: string, label: string) =>
@@ -334,7 +347,7 @@ export async function sendTeamNewOrder(order: Order, items: Item[]) {
     to.map((email) =>
       trySend("team-new-order", order.id, {
         to: email,
-        subject: `${demoTag(order)}🛍️ New order ${order.id} — ${money(order.total)}`,
+        subject: `${demoTag(order)}New order ${order.id} — ${money(order.total)}`,
         html,
         replyTo: order.email,
       }),
@@ -415,7 +428,7 @@ export async function sendLoginAlert(to: string, name: string, info: { ip: strin
      <p style="background:#f6f4ef;padding:10px 14px;border-radius:8px;font-size:14px">
        <b>When:</b> ${when} (IST)<br><b>Device:</b> ${escape(info.device)}<br><b>IP address:</b> ${escape(info.ip)}
      </p>
-     <p>If this was you, there’s nothing to do. If it wasn’t, sign out of Google on devices you don’t recognise and change your Google password.</p>`,
+     <p>If this was you, there’s nothing to do. If it wasn’t, reply to this email and we’ll help you secure your account.</p>`,
   );
   await trySend("login-alert", to, { to, subject: `New sign-in to ${s.siteName}`, html });
 }
@@ -522,7 +535,7 @@ export async function sendRefundRequested(order: Order, r: RefundRequestRow) {
     team.map((to) =>
       trySend("refund-requested", order.id, {
         to,
-        subject: `${demoTag(order)}↩️ Refund requested — ${order.id} (${money(r.amount)})`,
+        subject: `${demoTag(order)}Refund requested — ${order.id} (${money(r.amount)})`,
         html: teamHtml,
         replyTo: order.email,
       }),
@@ -561,7 +574,7 @@ export async function sendRefundVerified(order: Order, r: RefundRequestRow, veri
     admins.map((to) =>
       trySend("refund-verified", order.id, {
         to,
-        subject: `${demoTag(order)}Approve refund? ${order.id} (${money(r.amount)})`,
+        subject: `${demoTag(order)}Refund to approve — ${order.id} (${money(r.amount)})`,
         html,
       }),
     ),

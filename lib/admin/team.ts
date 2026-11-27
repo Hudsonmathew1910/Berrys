@@ -204,6 +204,12 @@ export async function decideRequest(
 
 // ---------------------------------------------------------------- activity
 
+/** Empties the activity log (owner only — checked by the action). Returns how many entries went. */
+export async function clearActivity() {
+  const gone = await getDb().delete(activityLog).returning({ id: activityLog.id });
+  return gone.length;
+}
+
 export async function listActivity(page: number) {
   const db = getDb();
   const [[{ total }], rows] = await Promise.all([

@@ -1016,8 +1016,12 @@ try {
       .locator(".dash-nav a, nav a")
       .evaluateAll((as) => as.map((a) => a.textContent.trim()).filter(Boolean));
     check(
-      "owner sidebar: Overview, Sales & analytics, Requests first",
-      /^Overview/.test(owner[0]) && /Sales & analytics/.test(owner[1]) && /Requests/.test(owner[2]),
+      "owner sidebar: Overview, Sales & analytics, Website content, Settings, Requests first",
+      /^Overview/.test(owner[0]) &&
+        /Sales & analytics/.test(owner[1]) &&
+        /Website content/.test(owner[2]) &&
+        /Settings/.test(owner[3]) &&
+        /Requests/.test(owner[4]),
       JSON.stringify(owner.slice(0, 5)),
     );
     const sctx = await browser.newContext({ viewport: { width: 1360, height: 900 } });

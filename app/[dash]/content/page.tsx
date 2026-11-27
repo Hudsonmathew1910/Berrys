@@ -1,3 +1,4 @@
+import { SectionNav } from "@/components/dashboard/section-nav";
 import Link from "next/link";
 import { ArrowUpRight } from "lucide-react";
 import { getCategories } from "@/lib/categories";
@@ -71,8 +72,19 @@ export default async function ContentPage() {
         <b>Preview</b> shows the home page template with what’s on this page right now — saved or not. It
         updates as you type, and you can click text in it to edit. Nothing is published until you save.
       </p>
+      <SectionNav
+        items={[
+          { id: "banners", label: "Banners" },
+          { id: "home-sections", label: "Home page sections" },
+          { id: "announcement", label: "Announcement bar" },
+          ...blocks.map(([key, title]) => ({ id: `block-${key}`, label: title })),
+          ...help.flatMap(([slug, page]) =>
+            page ? [{ id: `help-${slug}`, label: `Help: ${page.title}` }] : [],
+          ),
+        ]}
+      />
       <div className="dash-grid">
-        <section className="dash-panel wide">
+        <section className="dash-panel wide" id="banners">
           <h2>Home page banners</h2>
           <p className="muted">
             Leave a field empty to use the automatic choice. Upload a photo, or pick a product to use its
@@ -137,7 +149,7 @@ export default async function ContentPage() {
           <Reset k="homeSections" />
         </section>
 
-        <section className="dash-panel wide">
+        <section className="dash-panel wide" id="announcement">
           <h2>Announcement bar (top of every page)</h2>
           <ActionForm action={saveContentAction} saveAll>
             <input type="hidden" name="key" value="announcement" />
@@ -155,7 +167,7 @@ export default async function ContentPage() {
         </section>
 
         {blocks.map(([key, title, values]) => (
-          <section key={key} className="dash-panel wide">
+          <section key={key} className="dash-panel wide" id={`block-${key}`}>
             <h2>{title}</h2>
             <ActionForm action={saveContentAction} saveAll>
               <input type="hidden" name="key" value={key} />
@@ -182,7 +194,7 @@ export default async function ContentPage() {
 
         {help.map(([slug, page]) =>
           page ? (
-            <section key={slug} className="dash-panel wide">
+            <section key={slug} className="dash-panel wide" id={`help-${slug}`}>
               <h2>
                 Help page: {page.title}{" "}
                 <Link className="text-link" href={`/help/${slug}`} target="_blank">

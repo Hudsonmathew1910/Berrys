@@ -1,3 +1,4 @@
+import { SectionNav } from "@/components/dashboard/section-nav";
 import Link from "next/link";
 import { listMovements, lowStock, productOptions, stockSummary } from "@/lib/admin/catalog";
 import { getCategories } from "@/lib/categories";
@@ -53,7 +54,15 @@ export default async function StockPage({ searchParams }: { searchParams: Promis
         <Stat label={`Sizes running low (1–${LOW})`} value={sum.low} />
       </div>
 
-      <section className="dash-panel">
+      <SectionNav
+        items={[
+          { id: "add-stock", label: "Add or remove stock" },
+          { id: "restock", label: "Needs restocking" },
+          { id: "history", label: "Stock history" },
+        ]}
+      />
+
+      <section className="dash-panel" id="add-stock">
         <h2>Add or remove stock</h2>
         <p className="muted">
           One row per product and size — e.g. <b>10</b> to add a delivery, <b>-2</b> to remove damaged pieces.
@@ -86,7 +95,7 @@ export default async function StockPage({ searchParams }: { searchParams: Promis
         />
       </section>
 
-      <section className="dash-panel">
+      <section className="dash-panel" id="restock">
         <h2>
           Needs restocking <small className="muted">· sold out or {LOW} or fewer left</small>
         </h2>
@@ -154,7 +163,7 @@ export default async function StockPage({ searchParams }: { searchParams: Promis
         )}
       </section>
 
-      <section className="dash-panel">
+      <section className="dash-panel" id="history">
         <h2>
           Stock history
           {filtered && (

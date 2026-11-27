@@ -1,3 +1,4 @@
+import { SectionNav } from "@/components/dashboard/section-nav";
 import {
   emailConfigured,
   emailProviderNames,
@@ -101,6 +102,20 @@ export default async function SettingsPage() {
           <span className="muted">Changes apply to the website straight away.</span>
         </div>
       </div>
+      <SectionNav
+        items={[
+          { id: "store", label: "Store details" },
+          { id: "payments", label: "Payments" },
+          { id: "shipping", label: "Shipping & returns" },
+          { id: "emails", label: "Emails" },
+          { id: "email-usage", label: "Emails sent" },
+          { id: "maintenance", label: "Maintenance" },
+          { id: "social", label: "Social media" },
+          { id: "status", label: "System status" },
+          { id: "logs", label: "Log settings" },
+          { id: "seo", label: "SEO" },
+        ]}
+      />
 
       <div className="settings-grid">
         <section className="dash-panel" id="store">
@@ -239,32 +254,10 @@ export default async function SettingsPage() {
           </p>
           <ActionForm action={saveSettingsAction} saveAll>
             <input type="hidden" name="section" value="emails" />
-            <fieldset className="email-primary">
-              <legend>Other emails send with</legend>
-              <small className="muted">
-                Order confirmations, refund requests and decisions, and staff requests. The emails below
-                each have their own sender.
-              </small>
-              <div className="access-modes" role="radiogroup" aria-label="Other emails send with">
-                {(
-                  [
-                    ["resend", "Resend", "From your domain (ORDER_EMAIL_FROM). Lands in the inbox."],
-                    ["smtp", "Gmail SMTP", "From the Gmail account (SMTP_USER). About 500 emails a day."],
-                  ] as const
-                ).map(([value, title, text]) => (
-                  <label key={value} className="access-mode">
-                    <input type="radio" name="emailPrimary" value={value} defaultChecked={s.emailPrimary === value} />
-                    <span>
-                      <b>{title}</b>
-                      <small>{ready[value] ? text : "Not set up — its keys aren’t in the environment."}</small>
-                    </span>
-                  </label>
-                ))}
-              </div>
-              <small className="muted">
-                If it fails or isn’t set up, the other one sends the email instead.
-              </small>
-            </fieldset>
+            <p className="muted email-note">
+              Turn each email on or off and choose which service sends it. If it fails or isn’t set up, the
+              other service sends it instead.
+            </p>
             <div className="email-type">
               <Toggle
                 name="emailOrderStatus"
@@ -309,6 +302,18 @@ export default async function SettingsPage() {
                 checked={s.dashboardPasswordReset}
               />
               <SenderPick name="senderPasswordReset" value={s.senderPasswordReset} ready={ready} />
+            </div>
+            <div className="email-type">
+              <div className="setting-toggle static">
+                <span className="setting-text">
+                  <b>Other emails</b>
+                  <small>
+                    Order confirmations, refund requests and decisions, and staff requests to approve.
+                  </small>
+                </span>
+                <span className="always-on">Always on</span>
+              </div>
+              <SenderPick name="emailPrimary" value={s.emailPrimary} ready={ready} />
             </div>
             <button className="primary">Save email settings</button>
           </ActionForm>
