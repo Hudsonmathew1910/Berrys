@@ -19,35 +19,38 @@ const escape = (s: string) =>
 
 // ---------------------------------------------------------------- sending
 
-/** Is any email provider set up (Gmail SMTP or Resend)? */
-export const emailConfigured = () => !!(serverEnv.smtp() || serverEnv.resendApiKey());
-
-type Provider = "smtp" | "resend";
-const providerNames: Record<Provider, string> = { smtp: "Gmail SMTP", resend: "Resend" };
+type Provider = Settings["emailPrimary"];
+/** Backup order after the chosen provider: own-domain senders first, Gmail last. */
+const PROVIDERS = ["resend", "brevo", "smtp"] as const satisfies readonly Provider[];
+const providerNames: Record<Provider, string> = { resend: "Resend", brevo: "Brevo", smtp: "Gmail SMTP" };
 
 /** Which providers have their keys in the environment. */
 export const emailProvidersReady = (): Record<Provider, boolean> => ({
-  smtp: !!serverEnv.smtp(),
   resend: !!serverEnv.resendApiKey(),
+  brevo: !!serverEnv.brevoApiKey(),
+  smtp: !!serverEnv.smtp(),
 });
 
-/** Providers that are set up, the chosen one (Settings → Emails) first and the other as backup. */
+/** Is any email provider set up (Resend, Brevo or Gmail SMTP)? */
+export const emailConfigured = () => Object.values(emailProvidersReady()).some(Boolean);
+
+/** Providers that are set up: the chosen one (Settings → Emails) first, then the others as backups. */
 function providerOrder(primary: Provider): Provider[] {
   const ready = emailProvidersReady();
-  return ([primary, primary === "smtp" ? "resend" : "smtp"] as const).filter((p) => ready[p]);
+  return [primary, ...PROVIDERS.filter((p) => p !== primary)].filter((p) => ready[p]);
 }
 
-/** e.g. "Resend, backup: Gmail SMTP". */
-export const emailProvider = (primary: Provider = "resend") =>
-  providerOrder(primary)
-    .map((p) => providerNames[p])
-    .join(", backup: ");
+/** e.g. "Resend, backup: Brevo, Gmail SMTP". */
+export const emailProvider = (primary: Provider = "resend") => {
+  const [first, ...rest] = providerOrder(primary).map((p) => providerNames[p]);
+  return first ? first + (rest.length ? `, backup: ${rest.join(", ")}` : "") : "";
+};
 
 let transport: Transporter | null = null;
 
 /**
  * Sends one email with the provider chosen in Settings → Emails (Resend by
- * default); if it isn't set up or fails, the other one sends it instead.
+ * default); if it isn't set up or fails, the next one that is set up sends it.
  * Note: Gmail files mail an account sends to itself under Sent, not the Inbox.
  * Returns false when no provider is configured; throws when every provider fails.
  */
@@ -59,14 +62,12 @@ export async function sendMail(mail: {
   /** What kind of email, for the counter in Settings → Emails. */
   kind?: string;
 }) {
-  const smtp = serverEnv.smtp();
-  const apiKey = serverEnv.resendApiKey();
-  if (!smtp && !apiKey) return false;
+  if (!emailConfigured()) return false;
   const providers = providerOrder((await getSettings()).emailPrimary);
   const errors: unknown[] = [];
   for (const provider of providers) {
     try {
-      await deliver(mail, provider, smtp, apiKey);
+      await deliver(mail, provider);
       await countSend(mail.kind ?? "", true, provider);
       // The backup saved this email, but the chosen provider is broken: keep its
       // reason in the error log (Dashboard → Errors) so it can be fixed.
@@ -145,15 +146,18 @@ export function htmlToText(html: string) {
     .trim();
 }
 
-async function deliver(
-  mail: { to: string; subject: string; html: string; replyTo?: string },
-  provider: Provider,
-  smtp: ReturnType<typeof serverEnv.smtp>,
-  apiKey: string,
-) {
+/** "Berry’s <orders@berrystores.in>" → { name, email }; a bare address has no name. */
+export function parseSender(from: string) {
+  const m = from.trim().match(/^(.*?)\s*<([^<>\s]+@[^<>\s]+)>$/);
+  const name = m?.[1].trim().replace(/^"(.*)"$/, "$1");
+  return m ? { email: m[2], ...(name ? { name } : {}) } : { email: from.trim() };
+}
+
+async function deliver(mail: { to: string; subject: string; html: string; replyTo?: string }, provider: Provider) {
   const { siteName, supportEmail } = await getSettings();
   const replyTo = mail.replyTo ?? (supportEmail || undefined);
   const text = htmlToText(mail.html);
+  const smtp = serverEnv.smtp();
 
   if (provider === "smtp" && smtp) {
     if (!transport) {
@@ -180,9 +184,26 @@ async function deliver(
     return;
   }
 
+  if (provider === "brevo") {
+    const res = await fetch("https://api.brevo.com/v3/smtp/email", {
+      method: "POST",
+      headers: { "api-key": serverEnv.brevoApiKey(), "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({
+        sender: parseSender(serverEnv.orderEmailFrom()),
+        to: [{ email: mail.to }],
+        ...(replyTo ? { replyTo: { email: replyTo } } : {}),
+        subject: mail.subject,
+        htmlContent: mail.html,
+        textContent: text,
+      }),
+    });
+    if (!res.ok) throw new Error(`Brevo error ${res.status}: ${(await res.text()).slice(0, 300)}`);
+    return;
+  }
+
   const res = await fetch("https://api.resend.com/emails", {
     method: "POST",
-    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+    headers: { Authorization: `Bearer ${serverEnv.resendApiKey()}`, "Content-Type": "application/json" },
     body: JSON.stringify({
       from: serverEnv.orderEmailFrom(),
       to: [mail.to],

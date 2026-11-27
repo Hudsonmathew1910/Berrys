@@ -58,5 +58,7 @@ export const serverEnv = {
 
   /** Optional: order confirmation emails are skipped when unset. */
   resendApiKey: () => process.env.RESEND_API_KEY || "",
+  /** Optional Brevo (brevo.com) API key: sends from ORDER_EMAIL_FROM, like Resend. */
+  brevoApiKey: () => process.env.BREVO_API_KEY?.trim() || "",
   orderEmailFrom: () => process.env.ORDER_EMAIL_FROM || "Berry’s <orders@example.com>",
 };

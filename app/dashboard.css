@@ -1479,6 +1479,9 @@
 .access-mode input {
   margin-top: 2px;
 }
+.email-primary .access-modes {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
 .email-primary legend {
   padding: 0;
   margin-bottom: 8px;
@@ -1510,7 +1513,8 @@
   margin-bottom: 8px;
 }
 @media (max-width: 760px) {
-  .access-modes {
+  .access-modes,
+  .email-primary .access-modes {
     grid-template-columns: 1fr;
   }
   .mail-stats {
