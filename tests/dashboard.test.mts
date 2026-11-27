@@ -639,6 +639,44 @@ console.log("Refunds: part, full, requests");
     await assert.rejects(refundsLib.payRefundRequest(request.id, "admin"), (e: Err) => e.status === 409);
   });
 
+  await test("customers can't ask for a refund while the order is shipped; staff still can refund", async () => {
+    const o = await paidOrder("rf9@b.co");
+    const [u] = await q(sql`insert into users (email, name) values ('rf9@b.co','Rf9') returning id`);
+    await q(sql`update orders set user_id=${u.id}, status='shipped', is_demo=false where id=${o.orderId}`);
+    const ask = async () =>
+      refundsLib.createRefundRequest(
+        u.id,
+        o.orderId,
+        { wholeOrder: true, items: [], reason: "Changed my mind", details: "" },
+        await getSettings(),
+      );
+    const [order] = await q(sql`select * from orders where id=${o.orderId}`);
+    const blocker = refundsLib.refundBlocker(
+      { ...order, status: "shipped", isDemo: false } as never,
+      await getSettings(),
+      [],
+    );
+    assert.match(String(blocker), /once it’s delivered/);
+    await assert.rejects(ask());
+    // Before shipping and after delivery it's allowed (within the return window).
+    for (const status of ["paid", "packed"] as const)
+      assert.equal(
+        refundsLib.refundBlocker({ ...order, status, isDemo: false } as never, await getSettings(), []),
+        null,
+      );
+    assert.equal(
+      refundsLib.refundBlocker(
+        { ...order, status: "delivered", deliveredAt: new Date(), isDemo: false } as never,
+        { ...(await getSettings()), returnDays: 7 },
+        [],
+      ),
+      null,
+    );
+    // Staff refund from the dashboard still works on a shipped order (e.g. a lost parcel).
+    await adminOrders.refundOrder(o.orderId, "tester", "lost parcel");
+    assert.equal((await row(o.orderId)).status, "refunded");
+  });
+
   await test("if the money can't be sent, the approval keeps the reason and nothing is half-done", async () => {
     // A real (non-demo) payment id with no Razorpay keys in tests: Razorpay can't be reached.
     const o = await paidOrder("rf4@b.co", "pay_REALTEST123");
@@ -920,46 +958,31 @@ await test("every email gets a plain-text copy (links kept, tags gone)", async (
   );
 });
 /**
- * Gmail SMTP is always set up but points at a closed port (fails fast). Resend and
- * Brevo are set up only when given a status, which their fake API answers with.
- * Returns the label, the result and every attempt in order.
+ * Both providers set up: SMTP points at a closed port (always fails fast) and
+ * Resend is a fake fetch answering `resendStatus`. Returns the attempts in order.
  */
-async function sendWith(primary: "resend" | "brevo" | "smtp", status: { resend?: number; brevo?: number }) {
+async function sendWithBoth(primary: "resend" | "smtp", resendStatus: number) {
   const { updateSettings } = await import("../lib/settings.ts");
-  const keys = ["SMTP_USER", "SMTP_PASS", "SMTP_HOST", "SMTP_PORT", "RESEND_API_KEY", "BREVO_API_KEY", "ORDER_EMAIL_FROM"];
   const env = { ...process.env };
   const realFetch = globalThis.fetch;
-  const brevoBodies: unknown[] = [];
   Object.assign(process.env, {
     SMTP_USER: "shop@gmail.com",
     SMTP_PASS: "app-password",
     SMTP_HOST: "127.0.0.1",
     SMTP_PORT: "1",
-    RESEND_API_KEY: status.resend ? "re_test" : "",
-    BREVO_API_KEY: status.brevo ? "xkeysib-test" : "",
-    ORDER_EMAIL_FROM: "Berry’s <orders@berrys.test>",
+    RESEND_API_KEY: "re_test",
   });
-  globalThis.fetch = (async (url: string, init?: RequestInit) => {
-    const brevo = String(url).includes("brevo.com");
-    if (brevo) brevoBodies.push(JSON.parse(String(init?.body)));
-    return new Response("{}", { status: (brevo ? status.brevo : status.resend) ?? 500 });
-  }) as typeof fetch;
+  globalThis.fetch = (async () => new Response("{}", { status: resendStatus })) as typeof fetch;
   try {
     await updateSettings({ emailPrimary: primary }, "tester");
     const label = email.emailProvider(primary);
-    const sent = await email.sendMail({ to: "a@b.co", subject: "x", html: "<p>x</p>", kind: "order" }).catch(() => "threw");
-    const rows = await q(sql`select provider, ok from email_sends where kind = 'order' order by sent_at`);
+    const sent = await email.sendMail({ to: "a@b.co", subject: "x", html: "x", kind: "order" }).catch(() => "threw");
+    const rows = await q(sql`select provider, ok from email_sends where kind = 'order' order by sent_at, ok`);
     const logged = await q(sql`select path from error_logs where source = 'email' order by created_at`);
-    return {
-      label,
-      sent,
-      attempts: rows.map((r) => `${r.provider}:${r.ok}`),
-      logged: logged.map((r) => r.path),
-      brevoBodies,
-    };
+    return { label, sent, attempts: rows.map((r) => `${r.provider}:${r.ok}`), logged: logged.map((r) => r.path) };
   } finally {
     globalThis.fetch = realFetch;
-    for (const k of keys) {
+    for (const k of ["SMTP_USER", "SMTP_PASS", "SMTP_HOST", "SMTP_PORT", "RESEND_API_KEY"]) {
       if (env[k] === undefined) delete process.env[k];
       else process.env[k] = env[k];
     }
@@ -969,54 +992,34 @@ async function sendWith(primary: "resend" | "brevo" | "smtp", status: { resend?:
   }
 }
 await test("emails: Resend by default; Gmail SMTP only as backup", async () => {
-  const { settingsDefaults } = await import("../lib/settings.ts");
+  const { settingsDefaults, settingsSchema } = await import("../lib/settings.ts");
   assert.equal(settingsDefaults.emailPrimary, "resend");
-  const ok = await sendWith("resend", { resend: 200 });
-  assert.equal(ok.label, "Resend, backup: Gmail SMTP");
-  assert.equal(ok.sent, true);
-  assert.deepEqual(ok.attempts, ["resend:true"]);
-  assert.deepEqual(ok.logged, []);
-  // Resend down → SMTP is tried next (it fails here too, so the error is thrown
-  // and its caller, trySend, logs it).
-  const down = await sendWith("resend", { resend: 500 });
-  assert.equal(down.sent, "threw");
-  assert.deepEqual(down.attempts, ["resend:false", "smtp:false"]);
+  // A saved provider that no longer exists falls back to Resend and keeps the other settings.
+  const old = settingsSchema.parse({ ...settingsDefaults, siteName: "Kept", emailPrimary: "brevo" });
+  assert.equal(old.emailPrimary, "resend");
+  assert.equal(old.siteName, "Kept");
+  assert.deepEqual(await sendWithBoth("resend", 200), {
+    label: "Resend, backup: Gmail SMTP",
+    sent: true,
+    attempts: ["resend:true"],
+    logged: [],
+  });
+  // Resend down → SMTP is tried next (it fails here too, so the error is thrown).
+  assert.deepEqual(await sendWithBoth("resend", 500), {
+    label: "Resend, backup: Gmail SMTP",
+    sent: "threw",
+    attempts: ["resend:false", "smtp:false"],
+    logged: [], // sendMail throws; its caller (trySend) logs the error
+  });
 });
 await test("emails: Gmail SMTP chosen in settings goes first; Resend takes over when it fails", async () => {
-  const r = await sendWith("smtp", { resend: 200 });
-  assert.equal(r.label, "Gmail SMTP, backup: Resend");
-  assert.equal(r.sent, true);
-  assert.deepEqual(r.attempts, ["smtp:false", "resend:true"]);
-  // The backup delivered, but why the chosen provider failed is kept for the error log.
-  assert.deepEqual(r.logged, ["order (sent by backup Resend)"]);
-});
-await test("emails: Brevo as main or backup, from ORDER_EMAIL_FROM", async () => {
-  const main = await sendWith("brevo", { resend: 200, brevo: 201 });
-  assert.equal(main.label, "Brevo, backup: Resend, Gmail SMTP");
-  assert.deepEqual(main.attempts, ["brevo:true"]);
-  assert.deepEqual(main.brevoBodies, [
-    {
-      sender: { email: "orders@berrys.test", name: "Berry’s" },
-      to: [{ email: "a@b.co" }],
-      subject: "x",
-      htmlContent: "<p>x</p>",
-      textContent: "x",
-    },
-  ]);
-  // Resend down → Brevo (next own-domain sender) before Gmail.
-  const backup = await sendWith("resend", { resend: 500, brevo: 201 });
-  assert.equal(backup.label, "Resend, backup: Brevo, Gmail SMTP");
-  assert.deepEqual(backup.attempts, ["resend:false", "brevo:true"]);
-  assert.deepEqual(backup.logged, ["order (sent by backup Brevo)"]);
-  // Chosen provider not set up → the next one that is.
-  const missing = await sendWith("brevo", { resend: 200 });
-  assert.equal(missing.label, "Resend, backup: Gmail SMTP");
-  assert.deepEqual(missing.attempts, ["resend:true"]);
-});
-await test("emails: sender address parsing for Brevo", () => {
-  assert.deepEqual(email.parseSender("Berry’s <orders@berrystores.in>"), { name: "Berry’s", email: "orders@berrystores.in" });
-  assert.deepEqual(email.parseSender(`"Berry's Store" <a@b.in>`), { name: "Berry's Store", email: "a@b.in" });
-  assert.deepEqual(email.parseSender("orders@berrystores.in"), { email: "orders@berrystores.in" });
+  assert.deepEqual(await sendWithBoth("smtp", 200), {
+    label: "Gmail SMTP, backup: Resend",
+    sent: true,
+    attempts: ["smtp:false", "resend:true"],
+    // The backup delivered, but why the chosen provider failed is kept for the error log.
+    logged: ["order (sent by backup Resend)"],
+  });
 });
 await test("emails-sent counter: last 24 h / 7 / 30 days, failures and kinds", async () => {
   await q(sql`insert into email_sends (kind, ok, sent_at) values

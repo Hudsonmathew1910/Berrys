@@ -165,7 +165,7 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
         </section>
       </div>
 
-      {(refunds.length > 0 || sent.length > 0 || !blocker) && (
+      {(refunds.length > 0 || sent.length > 0 || !blocker || order.status === "shipped") && (
         <section className="account-card-box refund-box" id="refund">
           <h2>Refunds</h2>
           {sent.map((r) => {
@@ -258,7 +258,7 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
               />
             </>
           ) : (
-            refunds.length > 0 && <p className="muted">{blocker}</p>
+            (refunds.length > 0 || order.status === "shipped") && <p className="muted">{blocker}</p>
           )}
         </section>
       )}

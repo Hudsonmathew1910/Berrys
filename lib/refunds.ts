@@ -31,11 +31,15 @@ export const refundStatusLabels: Record<RefundRequestStatus, string> = {
 /** Requests still waiting for someone in the team. */
 export const OPEN_STATUSES: RefundRequestStatus[] = ["requested", "verified"];
 const MAX_REQUESTS_PER_ORDER = 3;
-const REFUNDABLE = ["paid", "packed", "shipped", "delivered"];
+const REFUNDABLE = ["paid", "packed", "delivered"];
 
 /** Can the customer ask for a refund on this order right now? (null = yes, else the reason why not) */
 export function refundBlocker(order: Order, settings: Settings, requests: RefundRequest[]): string | null {
-  if (order.isDemo) return null; // demo orders can try the whole flow
+  // On its way: the customer can't return it yet, and a refund now could pay out for a parcel that
+  // still arrives. Staff can still refund from the dashboard (e.g. a lost parcel).
+  if (order.status === "shipped")
+    return "Your order is on its way. You can ask for a refund once it’s delivered.";
+  if (order.isDemo) return null; // demo orders can try the rest of the flow
   if (!REFUNDABLE.includes(order.status) || order.refundId) return "This order can’t be refunded.";
   if (requests.some((r) => OPEN_STATUSES.includes(r.status))) return "Your refund request is being reviewed.";
   if (requests.some((r) => r.status === "approved")) return "A refund for this order was already approved.";
