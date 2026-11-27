@@ -56,8 +56,10 @@ export const settingsSchema = z.object({
   emailLoginAlert: z.boolean(),
   /** "Continue with email" on the login page and header (a 6-digit code is emailed to check the address). */
   emailSignIn: z.boolean(),
-  /** Daily sending limit of the email account (Gmail 500, Google Workspace 2000), for the counter. */
+  /** Daily sending limit of the Gmail SMTP account (Gmail 500, Google Workspace 2000), for the counter. */
   emailDailyLimit: z.coerce.number().int().min(10).max(100000),
+  /** Daily sending limit of the Resend plan (free plan 100), for the counter. */
+  resendDailyLimit: z.coerce.number().int().min(10).max(1000000).catch(100),
   emailTeamNewOrder: z.boolean(),
   /** "Forgot password?" on the dashboard sends a one-time code to the person's Gmail. */
   dashboardPasswordReset: z.boolean(),
@@ -103,6 +105,7 @@ export const settingsDefaults: Settings = {
   emailLoginAlert: false,
   emailSignIn: true,
   emailDailyLimit: 500,
+  resendDailyLimit: 100,
   emailTeamNewOrder: true,
   dashboardPasswordReset: true,
   emailPrimary: "resend",

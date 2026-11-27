@@ -1035,6 +1035,25 @@ await test("emails-sent counter: last 24 h / 7 / 30 days, failures and kinds", a
     { kind: "sign-in-code", n: 2 },
     { kind: "team-request", n: 1 },
   ]);
+  await q(sql`delete from email_sends`);
+});
+await test("emails-sent counter follows the chosen provider, against its own daily limit", async () => {
+  await q(sql`insert into email_sends (kind, ok, provider, sent_at) values
+    ('sign-in-code', true, 'resend', now()), ('order-confirmation', true, 'resend', now()),
+    ('login-alert', false, 'resend', now()), ('login-alert', true, 'smtp', now()),
+    ('status-update', true, 'resend', now() - interval '3 days')`);
+  const resend = await email.emailStats("resend");
+  assert.equal(resend.day, 2);
+  assert.equal(resend.week, 3);
+  assert.equal(resend.failedDay, 1);
+  assert.equal(resend.otherDay, 1); // what Gmail SMTP sent as backup
+  const smtp = await email.emailStats("smtp");
+  assert.equal(smtp.day, 1);
+  assert.equal(smtp.otherDay, 2);
+  const { settingsDefaults } = await import("../lib/settings.ts");
+  assert.equal(email.providerDailyLimit(settingsDefaults, "resend"), 100);
+  assert.equal(email.providerDailyLimit(settingsDefaults, "smtp"), 500);
+  await q(sql`delete from email_sends`);
 });
 
 console.log("Sign in with email");

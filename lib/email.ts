@@ -96,17 +96,19 @@ async function countSend(kind: string, ok: boolean, provider: string) {
 }
 
 /** Emails sent in the last 24 hours / 7 days / 30 days, failures, and the last 24 hours by kind. */
-export async function emailStats() {
+export async function emailStats(provider?: Provider) {
   const t = schema.emailSends;
   const since = (days: number) => new Date(Date.now() - days * 864e5);
   const db = getDb();
-  const count = (days: number, ok: boolean) =>
+  const only = (p?: Provider) => (p ? eq(t.provider, p) : undefined);
+  const count = (days: number, ok: boolean, p = provider) =>
     db
       .select({ n: sql<number>`count(*)::int` })
       .from(t)
-      .where(and(gt(t.sentAt, since(days)), eq(t.ok, ok)))
+      .where(and(gt(t.sentAt, since(days)), eq(t.ok, ok), only(p)))
       .then((rows) => rows[0].n);
-  const [day, week, month, failedDay, byKind] = await Promise.all([
+  const other = provider && (provider === "smtp" ? "resend" : "smtp");
+  const [day, week, month, failedDay, byKind, otherDay] = await Promise.all([
     count(1, true),
     count(7, true),
     count(30, true),
@@ -114,12 +116,19 @@ export async function emailStats() {
     db
       .select({ kind: t.kind, n: sql<number>`count(*)::int` })
       .from(t)
-      .where(and(gt(t.sentAt, since(1)), eq(t.ok, true)))
+      .where(and(gt(t.sentAt, since(1)), eq(t.ok, true), only(provider)))
       .groupBy(t.kind)
       .orderBy(sql`count(*) desc`),
+    other ? count(1, true, other) : Promise.resolve(0),
   ]);
-  return { day, week, month, failedDay, byKind };
+  return { day, week, month, failedDay, byKind, otherDay };
 }
+
+/** Daily sending limit for a provider (Settings → Emails sent). */
+export const providerDailyLimit = (s: Settings, p: Provider) =>
+  p === "resend" ? s.resendDailyLimit : s.emailDailyLimit;
+
+export { providerNames as emailProviderNames };
 
 /**
  * Plain-text copy of an email's HTML. Spam filters distrust HTML-only mail, and

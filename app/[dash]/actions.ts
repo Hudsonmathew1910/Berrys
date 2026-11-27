@@ -864,7 +864,7 @@ const settingSections = {
     "emailSignIn",
     "emailPrimary",
   ],
-  emailLimit: ["emailDailyLimit"],
+  emailLimit: ["emailDailyLimit", "resendDailyLimit"],
   maintenance: ["maintenance", "maintenanceMessage"],
   logs: ["errorLogDays"],
 } as const satisfies Record<string, readonly (keyof Settings)[]>;

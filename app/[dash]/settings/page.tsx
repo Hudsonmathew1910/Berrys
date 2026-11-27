@@ -1,4 +1,11 @@
-import { emailConfigured, emailProvider, emailProvidersReady, emailStats } from "@/lib/email";
+import {
+  emailConfigured,
+  emailProvider,
+  emailProviderNames,
+  emailProvidersReady,
+  emailStats,
+  providerDailyLimit,
+} from "@/lib/email";
 import { razorpayConfigured } from "@/lib/orders";
 import { getSettings } from "@/lib/settings";
 import Link from "next/link";
@@ -39,8 +46,12 @@ export default async function SettingsPage() {
   const s = await getSettings();
   const mail = emailConfigured();
   const ready = emailProvidersReady();
-  const sent = await emailStats();
-  const used = Math.min(100, Math.round((sent.day / s.emailDailyLimit) * 100));
+  // The counter follows the provider chosen in Settings → Emails, against that provider's own limit.
+  const primary = s.emailPrimary;
+  const backup = primary === "smtp" ? "resend" : "smtp";
+  const sent = await emailStats(primary);
+  const limit = providerDailyLimit(s, primary);
+  const used = Math.min(100, Math.round((sent.day / limit) * 100));
   const rzp = razorpayConfigured();
   const checks: [string, boolean, string][] = [
     ["Environment", true, process.env.NODE_ENV === "production" ? "Production" : "Development"],
@@ -279,30 +290,36 @@ export default async function SettingsPage() {
         </section>
 
         <section className={"dash-panel" + (used >= 80 ? " highlight" : "")} id="email-usage">
-          <h2>Emails sent</h2>
+          <h2>Emails sent · {emailProviderNames[primary]}</h2>
           <p className="muted">
-            {emailProvider(s.emailPrimary).startsWith("Gmail SMTP")
+            {primary === "smtp"
               ? "Gmail lets one account send about 500 emails a day (2,000 with Google Workspace), counted over the last 24 hours. Past the limit, emails fail until the oldest ones are a day old."
-              : "Counted over the last 24 hours, against the daily limit of your email account."}
+              : "Resend’s free plan sends 100 emails a day (3,000 a month); paid plans send more."}{" "}
+            Past the limit, {emailProviderNames[backup]} sends instead (if it’s set up).
           </p>
           <div
             className="mail-meter"
             role="img"
-            aria-label={`${sent.day} of ${s.emailDailyLimit} emails in the last 24 hours`}
+            aria-label={`${sent.day} of ${limit} emails sent with ${emailProviderNames[primary]} in the last 24 hours`}
           >
             <div className="mail-meter-top">
               <b>{sent.day.toLocaleString("en-IN")}</b>
               <span className="muted">
-                of {s.emailDailyLimit.toLocaleString("en-IN")} in the last 24 hours
+                of {limit.toLocaleString("en-IN")} today (last 24 hours)
               </span>
             </div>
             <div className={"mail-meter-bar" + (used >= 90 ? " danger" : used >= 70 ? " warn" : "")}>
               <span style={{ width: `${Math.max(used, sent.day ? 2 : 0)}%` }} />
             </div>
             <small className="muted">
-              {Math.max(0, s.emailDailyLimit - sent.day).toLocaleString("en-IN")} left today
+              {Math.max(0, limit - sent.day).toLocaleString("en-IN")} left today
               {used >= 80 && " — close to the limit"}
             </small>
+            {sent.otherDay > 0 && (
+              <small className="muted">
+                + {sent.otherDay.toLocaleString("en-IN")} sent by the backup ({emailProviderNames[backup]}) today
+              </small>
+            )}
           </div>
           <dl className="mail-stats">
             <div>
@@ -332,19 +349,34 @@ export default async function SettingsPage() {
           )}
           <ActionForm action={saveSettingsAction} saveAll>
             <input type="hidden" name="section" value="emailLimit" />
-            <label>
-              Daily limit of the email account
-              <input
-                name="emailDailyLimit"
-                type="number"
-                min={10}
-                max={100000}
-                required
-                defaultValue={s.emailDailyLimit}
-              />
-            </label>
-            <small className="muted">500 for a normal Gmail account, 2000 for Google Workspace.</small>
-            <button className="outline">Save limit</button>
+            <div className="form-grid">
+              <label>
+                Resend daily limit
+                <input
+                  name="resendDailyLimit"
+                  type="number"
+                  min={10}
+                  max={1000000}
+                  required
+                  defaultValue={s.resendDailyLimit}
+                />
+              </label>
+              <label>
+                Gmail SMTP daily limit
+                <input
+                  name="emailDailyLimit"
+                  type="number"
+                  min={10}
+                  max={100000}
+                  required
+                  defaultValue={s.emailDailyLimit}
+                />
+              </label>
+            </div>
+            <small className="muted">
+              Resend: 100 on the free plan. Gmail: 500 for a normal account, 2000 for Google Workspace.
+            </small>
+            <button className="outline">Save limits</button>
           </ActionForm>
         </section>
 
