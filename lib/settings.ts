@@ -61,8 +61,10 @@ export const settingsSchema = z.object({
   emailTeamNewOrder: z.boolean(),
   /** "Forgot password?" on the dashboard sends a one-time code to the person's Gmail. */
   dashboardPasswordReset: z.boolean(),
-  /** Which provider sends first; the others (if set up) are automatic backups. */
-  emailPrimary: z.enum(["resend", "brevo", "smtp"]),
+  /** Which provider sends first; the other one (if set up) is the automatic backup. */
+  // An unknown saved value (e.g. a removed provider) falls back to Resend instead of
+  // invalidating every other saved setting.
+  emailPrimary: z.enum(["resend", "smtp"]).catch("resend"),
 
   // Payments: Razorpay on, or (when an admin turns it off) demo payments for everyone.
   paymentMode: z.preprocess((v) => (v === "off" ? "demo" : v), z.enum(["razorpay", "demo"])),

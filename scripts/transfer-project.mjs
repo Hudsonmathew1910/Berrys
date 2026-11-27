@@ -180,18 +180,6 @@ async function checkEnv(label, env) {
     });
   } else skip("RESEND_API_KEY not set");
 
-  if (env.BREVO_API_KEY) {
-    await attempt("Brevo API key", async () => {
-      const r = await fetch("https://api.brevo.com/v3/account", {
-        headers: { "api-key": env.BREVO_API_KEY.trim(), Accept: "application/json" },
-      });
-      const body = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(`${r.status} ${body.message || ""}`);
-      const plan = (body.plan || []).map((p) => `${p.type}${p.credits != null ? ` (${p.credits} credits)` : ""}`).join(", ");
-      return plan ? `plan: ${plan}` : "";
-    });
-  } else skip("BREVO_API_KEY not set");
-
   if (env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET) {
     await attempt("Google OAuth client id/secret", async () => {
       // A fake code: Google answers invalid_grant if the client is right, invalid_client if not.
