@@ -1054,6 +1054,27 @@
   cursor: pointer;
   position: relative;
 }
+/* An email type: its on/off switch with a "Send with" picker underneath. */
+.email-type {
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 10px;
+}
+.email-type .setting-toggle {
+  border-bottom: 0;
+  padding-bottom: 6px;
+}
+.dash-form .sender-pick {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+}
+.dash-form .sender-pick select {
+  width: auto;
+  min-width: 0;
+  padding: 4px 8px;
+  font-size: 12px;
+}
 .setting-toggle.disabled {
   opacity: 0.55;
   cursor: not-allowed;

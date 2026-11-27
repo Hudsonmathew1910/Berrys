@@ -1019,6 +1019,45 @@ await test("emails: Resend by default; Gmail SMTP only as backup", async () => {
     logged: [], // sendMail throws; its caller (trySend) logs the error
   });
 });
+await test("emails: each switchable email type uses its own sender; the rest use the main one", async () => {
+  const { updateSettings, getSettings, settingsDefaults } = await import("../lib/settings.ts");
+  const s = { ...settingsDefaults, emailPrimary: "resend" as const, senderSignIn: "smtp" as const };
+  assert.equal(email.senderFor("sign-in-code", s), "smtp");
+  assert.equal(email.senderFor("order-confirmation", s), "resend");
+  assert.equal(email.senderFor("refund-processed", { ...s, senderOrderStatus: "smtp" }), "smtp");
+  assert.equal(email.senderFor("team-request", { ...s, emailPrimary: "smtp" }), "smtp");
+  // For real: SMTP chosen for sign-in codes is tried first (it fails here), then Resend.
+  const env = { ...process.env };
+  const realFetch = globalThis.fetch;
+  Object.assign(process.env, {
+    SMTP_USER: "shop@gmail.com",
+    SMTP_PASS: "app-password",
+    SMTP_HOST: "127.0.0.1",
+    SMTP_PORT: "1",
+    RESEND_API_KEY: "re_test",
+  });
+  globalThis.fetch = (async () => new Response("{}", { status: 200 })) as typeof fetch;
+  try {
+    await updateSettings({ emailPrimary: "resend", senderSignIn: "smtp" }, "tester");
+    assert.equal((await getSettings()).senderSignIn, "smtp");
+    await email.sendMail({ to: "a@b.co", subject: "x", html: "x", kind: "sign-in-code" });
+    await email.sendMail({ to: "a@b.co", subject: "x", html: "x", kind: "order-confirmation" });
+    const rows = await q(sql`select kind, provider, ok from email_sends order by sent_at, ok`);
+    assert.deepEqual(
+      rows.map((r) => `${r.kind}:${r.provider}:${r.ok}`),
+      ["sign-in-code:smtp:false", "sign-in-code:resend:true", "order-confirmation:resend:true"],
+    );
+  } finally {
+    globalThis.fetch = realFetch;
+    for (const k of ["SMTP_USER", "SMTP_PASS", "SMTP_HOST", "SMTP_PORT", "RESEND_API_KEY"]) {
+      if (env[k] === undefined) delete process.env[k];
+      else process.env[k] = env[k];
+    }
+    await updateSettings({ senderSignIn: "resend" }, "tester");
+    await q(sql`delete from email_sends`);
+    await q(sql`delete from error_logs where source = 'email'`);
+  }
+});
 await test("emails: Gmail SMTP chosen in settings goes first; Resend takes over when it fails", async () => {
   assert.deepEqual(await sendWithBoth("smtp", 200), {
     label: "Gmail SMTP, backup: Resend",

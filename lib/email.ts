@@ -25,6 +25,24 @@ export const emailConfigured = () => !!(serverEnv.smtp() || serverEnv.resendApiK
 type Provider = "smtp" | "resend";
 const providerNames: Record<Provider, string> = { smtp: "Gmail SMTP", resend: "Resend" };
 
+/** Email types with their own sender in Settings → Emails; every other kind uses emailPrimary. */
+export const senderSettingFor: Record<string, keyof Settings> = {
+  "status-update": "senderOrderStatus",
+  "refund-initiated": "senderOrderStatus",
+  "refund-processed": "senderOrderStatus",
+  "refund-failed": "senderOrderStatus",
+  "team-new-order": "senderTeamNewOrder",
+  "login-alert": "senderLoginAlert",
+  "sign-in-code": "senderSignIn",
+  "dashboard-reset": "senderPasswordReset",
+};
+
+/** The provider chosen for this kind of email. */
+export function senderFor(kind: string, s: Settings): Provider {
+  const key = senderSettingFor[kind];
+  return (key ? s[key] : s.emailPrimary) as Provider;
+}
+
 /** Which providers have their keys in the environment. */
 export const emailProvidersReady = (): Record<Provider, boolean> => ({
   smtp: !!serverEnv.smtp(),
@@ -46,8 +64,8 @@ export const emailProvider = (primary: Provider = "resend") =>
 let transport: Transporter | null = null;
 
 /**
- * Sends one email with the provider chosen in Settings → Emails (Resend by
- * default); if it isn't set up or fails, the other one sends it instead.
+ * Sends one email with the provider chosen for its type in Settings → Emails
+ * (Resend by default); if it isn't set up or fails, the other one sends it instead.
  * Note: Gmail files mail an account sends to itself under Sent, not the Inbox.
  * Returns false when no provider is configured; throws when every provider fails.
  */
@@ -62,7 +80,7 @@ export async function sendMail(mail: {
   const smtp = serverEnv.smtp();
   const apiKey = serverEnv.resendApiKey();
   if (!smtp && !apiKey) return false;
-  const providers = providerOrder((await getSettings()).emailPrimary);
+  const providers = providerOrder(senderFor(mail.kind ?? "", await getSettings()));
   const errors: unknown[] = [];
   for (const provider of providers) {
     try {

@@ -1,6 +1,5 @@
 import {
   emailConfigured,
-  emailProvider,
   emailProviderNames,
   emailProvidersReady,
   emailStats,
@@ -46,12 +45,19 @@ export default async function SettingsPage() {
   const s = await getSettings();
   const mail = emailConfigured();
   const ready = emailProvidersReady();
-  // The counter follows the provider chosen in Settings → Emails, against that provider's own limit.
-  const primary = s.emailPrimary;
-  const backup = primary === "smtp" ? "resend" : "smtp";
-  const sent = await emailStats(primary);
-  const limit = providerDailyLimit(s, primary);
-  const used = Math.min(100, Math.round((sent.day / limit) * 100));
+  // Each email type picks its own sender, so count every service against its own daily limit.
+  const sent = await emailStats();
+  const meters = await Promise.all(
+    (["resend", "smtp"] as const)
+      .filter((p) => ready[p])
+      .map(async (p) => {
+        const day = (await emailStats(p)).day;
+        const limit = providerDailyLimit(s, p);
+        return { p, day, limit, used: Math.min(100, Math.round((day / limit) * 100)) };
+      }),
+  );
+  const used = Math.max(0, ...meters.map((m) => m.used));
+  const setUp = (["resend", "smtp"] as const).filter((p) => ready[p]).map((p) => emailProviderNames[p]);
   const rzp = razorpayConfigured();
   const checks: [string, boolean, string][] = [
     ["Environment", true, process.env.NODE_ENV === "production" ? "Production" : "Development"],
@@ -67,7 +73,7 @@ export default async function SettingsPage() {
       !!process.env.RAZORPAY_WEBHOOK_SECRET,
       process.env.RAZORPAY_WEBHOOK_SECRET ? "Secret set" : "RAZORPAY_WEBHOOK_SECRET not set",
     ],
-    ["Email", mail, mail ? emailProvider(s.emailPrimary) : "Not set up"],
+    ["Email", mail, mail ? setUp.join(" + ") : "Not set up"],
     [
       "Store owner",
       !!process.env.STORE_OWNER_EMAIL,
@@ -227,15 +233,19 @@ export default async function SettingsPage() {
           <p>
             <StatusDot ok={mail}>
               {mail
-                ? `Sending with ${emailProvider(s.emailPrimary)}`
+                ? `Set up: ${setUp.join(" and ")}`
                 : "Email isn’t set up (RESEND_API_KEY, or SMTP_USER / SMTP_PASS)"}
             </StatusDot>
           </p>
           <ActionForm action={saveSettingsAction} saveAll>
             <input type="hidden" name="section" value="emails" />
             <fieldset className="email-primary">
-              <legend>Send emails with</legend>
-              <div className="access-modes" role="radiogroup" aria-label="Send emails with">
+              <legend>Other emails send with</legend>
+              <small className="muted">
+                Order confirmations, refund requests and decisions, and staff requests. The emails below
+                each have their own sender.
+              </small>
+              <div className="access-modes" role="radiogroup" aria-label="Other emails send with">
                 {(
                   [
                     ["resend", "Resend", "From your domain (ORDER_EMAIL_FROM). Lands in the inbox."],
@@ -255,72 +265,84 @@ export default async function SettingsPage() {
                 If it fails or isn’t set up, the other one sends the email instead.
               </small>
             </fieldset>
-            <Toggle
-              name="emailOrderStatus"
-              title="Order status emails"
-              text="Email the customer whenever their order is packed, shipped, delivered, cancelled or refunded."
-              checked={s.emailOrderStatus}
-            />
-            <Toggle
-              name="emailTeamNewOrder"
-              title="New order emails to the team"
-              text="Team members with “Email me every new order” ticked get each new paid order (never the store owner address)."
-              checked={s.emailTeamNewOrder}
-            />
-            <Toggle
-              name="emailLoginAlert"
-              title="Sign-in alerts"
-              text="Email people each time their account signs in to the website."
-              checked={s.emailLoginAlert}
-            />
-            <Toggle
-              name="emailSignIn"
-              title="Sign in with email"
-              text="Anyone can sign in with their email: we email a 6-digit code to prove it’s theirs. Same account as Google for that email. Needs email (SMTP) set up."
-              checked={s.emailSignIn}
-            />
-            <Toggle
-              name="dashboardPasswordReset"
-              title="Forgot dashboard password by email"
-              text="“Forgot password?” on the dashboard lock screen emails a 6-digit code to the person’s Gmail."
-              checked={s.dashboardPasswordReset}
-            />
+            <div className="email-type">
+              <Toggle
+                name="emailOrderStatus"
+                title="Order status emails"
+                text="Email the customer whenever their order is packed, shipped, delivered, cancelled or refunded."
+                checked={s.emailOrderStatus}
+              />
+              <SenderPick name="senderOrderStatus" value={s.senderOrderStatus} ready={ready} />
+            </div>
+            <div className="email-type">
+              <Toggle
+                name="emailTeamNewOrder"
+                title="New order emails to the team"
+                text="Team members with “Email me every new order” ticked get each new paid order (never the store owner address)."
+                checked={s.emailTeamNewOrder}
+              />
+              <SenderPick name="senderTeamNewOrder" value={s.senderTeamNewOrder} ready={ready} />
+            </div>
+            <div className="email-type">
+              <Toggle
+                name="emailLoginAlert"
+                title="Sign-in alerts"
+                text="Email people each time their account signs in to the website."
+                checked={s.emailLoginAlert}
+              />
+              <SenderPick name="senderLoginAlert" value={s.senderLoginAlert} ready={ready} />
+            </div>
+            <div className="email-type">
+              <Toggle
+                name="emailSignIn"
+                title="Sign in with email"
+                text="Anyone can sign in with their email: we email a 6-digit code to prove it’s theirs. Same account as Google for that email. Needs Resend or Gmail SMTP set up."
+                checked={s.emailSignIn}
+              />
+              <SenderPick name="senderSignIn" value={s.senderSignIn} ready={ready} />
+            </div>
+            <div className="email-type">
+              <Toggle
+                name="dashboardPasswordReset"
+                title="Forgot dashboard password by email"
+                text="“Forgot password?” on the dashboard lock screen emails a 6-digit code to the person’s Gmail."
+                checked={s.dashboardPasswordReset}
+              />
+              <SenderPick name="senderPasswordReset" value={s.senderPasswordReset} ready={ready} />
+            </div>
             <button className="primary">Save email settings</button>
           </ActionForm>
         </section>
 
         <section className={"dash-panel" + (used >= 80 ? " highlight" : "")} id="email-usage">
-          <h2>Emails sent · {emailProviderNames[primary]}</h2>
+          <h2>Emails sent</h2>
           <p className="muted">
-            {primary === "smtp"
-              ? "Gmail lets one account send about 500 emails a day (2,000 with Google Workspace), counted over the last 24 hours. Past the limit, emails fail until the oldest ones are a day old."
-              : "Resend’s free plan sends 100 emails a day (3,000 a month); paid plans send more."}{" "}
-            Past the limit, {emailProviderNames[backup]} sends instead (if it’s set up).
+            Counted over the last 24 hours for each service. Resend’s free plan sends 100 a day (3,000 a
+            month); a Gmail account about 500 (2,000 with Google Workspace). Past a limit, the other service
+            sends instead (if it’s set up).
           </p>
-          <div
-            className="mail-meter"
-            role="img"
-            aria-label={`${sent.day} of ${limit} emails sent with ${emailProviderNames[primary]} in the last 24 hours`}
-          >
-            <div className="mail-meter-top">
-              <b>{sent.day.toLocaleString("en-IN")}</b>
-              <span className="muted">
-                of {limit.toLocaleString("en-IN")} today (last 24 hours)
-              </span>
-            </div>
-            <div className={"mail-meter-bar" + (used >= 90 ? " danger" : used >= 70 ? " warn" : "")}>
-              <span style={{ width: `${Math.max(used, sent.day ? 2 : 0)}%` }} />
-            </div>
-            <small className="muted">
-              {Math.max(0, limit - sent.day).toLocaleString("en-IN")} left today
-              {used >= 80 && " — close to the limit"}
-            </small>
-            {sent.otherDay > 0 && (
+          {meters.map((m) => (
+            <div
+              key={m.p}
+              className="mail-meter"
+              role="img"
+              aria-label={`${m.day} of ${m.limit} emails sent with ${emailProviderNames[m.p]} in the last 24 hours`}
+            >
+              <div className="mail-meter-top">
+                <b>{m.day.toLocaleString("en-IN")}</b>
+                <span className="muted">
+                  of {m.limit.toLocaleString("en-IN")} today with {emailProviderNames[m.p]}
+                </span>
+              </div>
+              <div className={"mail-meter-bar" + (m.used >= 90 ? " danger" : m.used >= 70 ? " warn" : "")}>
+                <span style={{ width: `${Math.max(m.used, m.day ? 2 : 0)}%` }} />
+              </div>
               <small className="muted">
-                + {sent.otherDay.toLocaleString("en-IN")} sent by the backup ({emailProviderNames[backup]}) today
+                {Math.max(0, m.limit - m.day).toLocaleString("en-IN")} left today
+                {m.used >= 80 && " — close to the limit"}
               </small>
-            )}
-          </div>
+            </div>
+          ))}
           <dl className="mail-stats">
             <div>
               <dt>Last 7 days</dt>
@@ -487,5 +509,26 @@ export default async function SettingsPage() {
         </section>
       </div>
     </div>
+  );
+}
+
+/** "Send with" picker under an email type's on/off switch. */
+function SenderPick({
+  name,
+  value,
+  ready,
+}: {
+  name: string;
+  value: "resend" | "smtp";
+  ready: Record<"resend" | "smtp", boolean>;
+}) {
+  return (
+    <label className="sender-pick">
+      <span>Send with</span>
+      <select name={name} defaultValue={value}>
+        <option value="resend">Resend{ready.resend ? "" : " (not set up)"}</option>
+        <option value="smtp">Gmail SMTP{ready.smtp ? "" : " (not set up)"}</option>
+      </select>
+    </label>
   );
 }

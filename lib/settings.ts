@@ -16,6 +16,8 @@ const url = z
   .refine((v) => !v || /^https:\/\/[^\s"'<>]+$/.test(v), "Links must start with https://");
 const text = (max: number) => z.string().trim().max(max);
 const money = z.coerce.number().int().min(0).max(100000);
+/** Which email service sends an email type; unknown values fall back to Resend. */
+const sender = z.enum(["resend", "smtp"]).catch("resend");
 
 export const settingsSchema = z.object({
   // Store details
@@ -67,6 +69,12 @@ export const settingsSchema = z.object({
   // An unknown saved value (e.g. a removed provider) falls back to Resend instead of
   // invalidating every other saved setting.
   emailPrimary: z.enum(["resend", "smtp"]).catch("resend"),
+  /** Sender for each switchable email type (the rest use emailPrimary). */
+  senderOrderStatus: sender,
+  senderTeamNewOrder: sender,
+  senderLoginAlert: sender,
+  senderSignIn: sender,
+  senderPasswordReset: sender,
 
   // Payments: Razorpay on, or (when an admin turns it off) demo payments for everyone.
   paymentMode: z.preprocess((v) => (v === "off" ? "demo" : v), z.enum(["razorpay", "demo"])),
@@ -109,6 +117,11 @@ export const settingsDefaults: Settings = {
   emailTeamNewOrder: true,
   dashboardPasswordReset: true,
   emailPrimary: "resend",
+  senderOrderStatus: "resend",
+  senderTeamNewOrder: "resend",
+  senderLoginAlert: "resend",
+  senderSignIn: "resend",
+  senderPasswordReset: "resend",
   paymentMode: "razorpay",
   maintenance: false,
   maintenanceMessage: "We’re making a few little improvements. Please check back shortly.",
